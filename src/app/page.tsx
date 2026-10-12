@@ -1,5 +1,9 @@
-import { Button } from "@/components/ui/button";
+import { ThemeToggler } from "@/components/theme-toggler";
 
 export default function Home() {
-  return <Button>Acumalaka</Button>;
+  return (
+    <main className="flex min-h-screen items-center justify-center p-4">
+      <ThemeToggler />
+    </main>
+  );
 }
