@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Outfit } from "next/font/google";
+import { Cinzel_Decorative, Outfit } from "next/font/google";
 
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import "./globals.css";
@@ -7,6 +7,12 @@ import "./globals.css";
 const fontSans = Outfit({
   variable: "--font-sans",
   subsets: ["latin"],
+});
+
+const fontCinzelDecorative = Cinzel_Decorative({
+  variable: "--font-cinzel",
+  subsets: ["latin"],
+  weight: ["400", "700"],
 });
 
 export const metadata: Metadata = {
@@ -19,7 +25,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${fontSans.variable} h-full antialiased`}
+      className={`${fontSans.variable} ${fontCinzelDecorative.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         <ThemeProvider
