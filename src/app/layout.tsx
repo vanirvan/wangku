@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Cinzel_Decorative, Outfit } from "next/font/google";
 
 import { ThemeProvider } from "@/components/providers/theme-provider";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
 const fontSans = Outfit({
@@ -34,7 +35,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           enableSystem
           disableTransitionOnChange
         >
-          {children}
+          <TooltipProvider>{children}</TooltipProvider>
         </ThemeProvider>
       </body>
     </html>
