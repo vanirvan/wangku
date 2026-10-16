@@ -8,6 +8,7 @@ import {
 import type { ElementType } from "react";
 
 import type { PaymentMethod } from "@/lib/db/schemas";
+import { formatRupiah } from "@/lib/utils";
 import type { PaymentMethodType } from "@/services/features/payments";
 
 export const PAYMENT_TYPE_CONFIG: Record<
@@ -56,11 +57,7 @@ export function PaymentMethodCard({
   const config = PAYMENT_TYPE_CONFIG[typeKey];
   const Icon = config.icon;
 
-  const formattedBalance = new Intl.NumberFormat("id-ID", {
-    style: "currency",
-    currency: "IDR",
-    maximumFractionDigits: 0,
-  }).format(Number(paymentMethod.balance ?? 0));
+  const formattedBalance = formatRupiah(paymentMethod.balance);
 
   const nameId = `wallet-name-${paymentMethod.id}`;
   const balanceId = `wallet-bal-${paymentMethod.id}`;

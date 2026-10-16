@@ -6,8 +6,10 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { PaymentMethod } from "@/lib/db/schemas";
+import { formatRupiah } from "@/lib/utils";
 import {
   deletePaymentMethod,
+  invalidatePaymentMethodsCache,
   type PaymentMethodType,
 } from "@/services/features/payments";
 
@@ -85,11 +87,7 @@ export function PaymentMethodList({
   }, [items]);
 
   const formattedLiquidBalance = useMemo(() => {
-    return new Intl.NumberFormat("id-ID", {
-      style: "currency",
-      currency: "IDR",
-      maximumFractionDigits: 0,
-    }).format(liquidBalance);
+    return formatRupiah(liquidBalance);
   }, [liquidBalance]);
 
   const filtered = useMemo(() => {
@@ -129,6 +127,7 @@ export function PaymentMethodList({
         const res = await deletePaymentMethod(deletingItem.id);
         if (res.error) throw new Error(res.error);
       }
+      invalidatePaymentMethodsCache();
       setDeleteDialogOpen(false);
       setDeletingItem(null);
     } catch (err) {

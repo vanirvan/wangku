@@ -41,6 +41,7 @@ import type { PaymentMethod } from "@/lib/db/schemas";
 import { formatCurrency } from "@/lib/utils";
 import {
   createPaymentMethod,
+  invalidatePaymentMethodsCache,
   type PaymentMethodFormValues,
   type PaymentMethodType,
   paymentMethodSchema,
@@ -278,6 +279,7 @@ export function PaymentMethodDialog({
         return;
       }
 
+      invalidatePaymentMethodsCache();
       onOpenChange(false);
       onSuccess?.();
     } catch (err) {
