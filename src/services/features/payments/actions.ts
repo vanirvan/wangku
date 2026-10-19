@@ -2,10 +2,10 @@
 
 import { and, desc, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { headers } from "next/headers";
 
-import { auth } from "@/lib/auth";
+import { requireAuthUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import type { PaymentMethod } from "@/lib/db/schemas/payment-methods-schema";
 import { paymentMethods } from "@/lib/db/schemas/payment-methods-schema";
 
 import {
@@ -13,16 +13,12 @@ import {
   paymentMethodSchema,
 } from "./schema";
 
-async function getSessionUser() {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-  return session?.user ?? null;
-}
-
-export async function getPaymentMethods() {
-  const user = await getSessionUser();
-  if (!user) return { error: "Unauthorized" };
+export async function getPaymentMethods(): Promise<{
+  data: PaymentMethod[];
+  error?: string;
+}> {
+  const { user, error } = await requireAuthUser();
+  if (error) return { error: error.error, data: [] };
 
   const data = await db
     .select()
@@ -33,9 +29,11 @@ export async function getPaymentMethods() {
   return { data };
 }
 
-export async function createPaymentMethod(data: PaymentMethodInput) {
-  const user = await getSessionUser();
-  if (!user) return { error: "Unauthorized" };
+export async function createPaymentMethod(
+  data: PaymentMethodInput,
+): Promise<{ data?: PaymentMethod; error?: string }> {
+  const { user, error } = await requireAuthUser();
+  if (error) return { error: error.error };
 
   const parsed = paymentMethodSchema.safeParse(data);
   if (!parsed.success) {
@@ -60,9 +58,9 @@ export async function createPaymentMethod(data: PaymentMethodInput) {
 export async function updatePaymentMethod(
   id: string,
   data: PaymentMethodInput,
-) {
-  const user = await getSessionUser();
-  if (!user) return { error: "Unauthorized" };
+): Promise<{ data?: PaymentMethod; error?: string }> {
+  const { user, error } = await requireAuthUser();
+  if (error) return { error: error.error };
 
   const parsed = paymentMethodSchema.safeParse(data);
   if (!parsed.success) {
@@ -85,9 +83,11 @@ export async function updatePaymentMethod(
   return { data: updated };
 }
 
-export async function deletePaymentMethod(id: string) {
-  const user = await getSessionUser();
-  if (!user) return { error: "Unauthorized" };
+export async function deletePaymentMethod(
+  id: string,
+): Promise<{ success?: boolean; error?: string }> {
+  const { user, error } = await requireAuthUser();
+  if (error) return { error: error.error };
 
   const [deleted] = await db
     .delete(paymentMethods)

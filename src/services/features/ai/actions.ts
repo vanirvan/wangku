@@ -2,9 +2,8 @@
 
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { headers } from "next/headers";
 
-import { auth } from "@/lib/auth";
+import { requireAuthUser } from "@/lib/auth";
 import { decrypt, encrypt } from "@/lib/crypto";
 import { db } from "@/lib/db";
 import { aiSettings } from "@/lib/db/schemas/ai-settings-schema";
@@ -12,19 +11,12 @@ import { aiSettings } from "@/lib/db/schemas/ai-settings-schema";
 import { type AIConfigInput, aiConfigSchema } from "./schema";
 import type { AIConfig } from "./types";
 
-async function getSessionUser() {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-  return session?.user ?? null;
-}
-
 export async function getAiConfigAction(): Promise<{
   data?: AIConfig | null;
   error?: string;
 }> {
-  const user = await getSessionUser();
-  if (!user) return { error: "Unauthorized" };
+  const { user, error } = await requireAuthUser();
+  if (error) return error;
 
   try {
     const [row] = await db
@@ -63,8 +55,8 @@ export async function getAiConfigAction(): Promise<{
 export async function saveAiConfigAction(
   input: AIConfigInput,
 ): Promise<{ success?: boolean; error?: string }> {
-  const user = await getSessionUser();
-  if (!user) return { error: "Unauthorized" };
+  const { user, error } = await requireAuthUser();
+  if (error) return error;
 
   const parsed = aiConfigSchema.safeParse(input);
   if (!parsed.success) {

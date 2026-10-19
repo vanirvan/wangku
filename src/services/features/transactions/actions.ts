@@ -3,10 +3,10 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { revalidatePath } from "next/cache";
-import { headers } from "next/headers";
 
-import { auth } from "@/lib/auth";
+import { getSessionUser, requireAuthUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import type { Transaction } from "@/lib/db/schemas";
 import { categories, paymentMethods, transactions } from "@/lib/db/schemas";
 import { ensureCustomCategory } from "@/services/features/categories";
 
@@ -16,16 +16,9 @@ import type {
   TransactionWithPaymentMethod,
 } from "./types";
 
-async function getSessionUser() {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-  return session?.user ?? null;
-}
-
 export async function getTransactions(filter?: GetTransactionsFilter) {
-  const user = await getSessionUser();
-  if (!user) return { error: "Unauthorized", data: [] };
+  const { user, error } = await requireAuthUser();
+  if (error) return { error: error.error, data: [] };
 
   const conditions = [eq(transactions.userId, user.id)];
 
@@ -86,9 +79,11 @@ export async function getTransactions(filter?: GetTransactionsFilter) {
   return { data: rows as TransactionWithPaymentMethod[] };
 }
 
-export async function createTransaction(data: TransactionFormValues) {
-  const user = await getSessionUser();
-  if (!user) return { error: "Unauthorized" };
+export async function createTransaction(
+  data: TransactionFormValues,
+): Promise<{ data?: Transaction; error?: string }> {
+  const { user, error } = await requireAuthUser();
+  if (error) return { error: error.error };
 
   const parsed = transactionSchema.safeParse(data);
   if (!parsed.success) {
@@ -203,9 +198,9 @@ export async function createTransaction(data: TransactionFormValues) {
 export async function updateTransaction(
   id: string,
   data: TransactionFormValues,
-) {
-  const user = await getSessionUser();
-  if (!user) return { error: "Unauthorized" };
+): Promise<{ data?: Transaction; error?: string }> {
+  const { user, error } = await requireAuthUser();
+  if (error) return { error: error.error };
 
   const parsed = transactionSchema.safeParse(data);
   if (!parsed.success) {
@@ -383,9 +378,11 @@ export async function updateTransaction(
   return { data: result.data };
 }
 
-export async function deleteTransaction(id: string) {
-  const user = await getSessionUser();
-  if (!user) return { error: "Unauthorized" };
+export async function deleteTransaction(
+  id: string,
+): Promise<{ success?: boolean; error?: string }> {
+  const { user, error } = await requireAuthUser();
+  if (error) return { error: error.error };
 
   const result = await db.transaction(async (tx) => {
     const [txRecord] = await tx
@@ -509,9 +506,12 @@ export async function getTransactionSummary() {
   };
 }
 
-export async function resetTransactions() {
-  const user = await getSessionUser();
-  if (!user) return { error: "Unauthorized" };
+export async function resetTransactions(): Promise<{
+  success?: boolean;
+  error?: string;
+}> {
+  const { user, error } = await requireAuthUser();
+  if (error) return { error: error.error };
 
   await db.transaction(async (tx) => {
     await tx.delete(transactions).where(eq(transactions.userId, user.id));

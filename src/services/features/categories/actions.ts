@@ -1,20 +1,12 @@
 "use server";
 
 import { and, desc, eq, ilike } from "drizzle-orm";
-import { headers } from "next/headers";
 
-import { auth } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { categories } from "@/lib/db/schemas";
 
 import { DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES } from "./data";
-
-async function getSessionUser() {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-  return session?.user ?? null;
-}
 
 export async function getCategories(type: "income" | "expense") {
   const user = await getSessionUser();
