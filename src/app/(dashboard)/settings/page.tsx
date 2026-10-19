@@ -1,4 +1,5 @@
 import {
+  AiConfigSection,
   DangerZoneSection,
   DeviceSessionsSection,
   ThirdPartyLoginSection,
@@ -23,6 +24,10 @@ export default function SettingsPage() {
       <Separator />
 
       <DeviceSessionsSection />
+
+      <Separator />
+
+      <AiConfigSection />
 
       <Separator />
 
