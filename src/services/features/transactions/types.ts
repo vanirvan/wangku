@@ -9,5 +9,8 @@ export interface GetTransactionsFilter {
   type?: "income" | "expense" | "transfer";
   paymentMethodId?: string;
   category?: string;
+  search?: string;
+  startDate?: Date | string;
+  endDate?: Date | string;
   limit?: number;
 }

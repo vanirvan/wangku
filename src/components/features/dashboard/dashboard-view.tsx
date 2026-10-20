@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "cn";
+import { endOfMonth, startOfMonth } from "date-fns";
 import {
   ArrowDownLeft,
   ArrowLeftRight,
@@ -11,13 +12,20 @@ import {
   Wallet,
 } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useTransition } from "react";
 
 import { TransactionDialog } from "@/components/features/transactions";
 import { Button } from "@/components/ui/button";
+import {
+  type DateRange,
+  DateRangePicker,
+} from "@/components/ui/date-range-picker";
 import type { PaymentMethod } from "@/lib/db/schemas";
 import { formatCurrency, formatRupiah } from "@/lib/utils";
-import type { TransactionWithPaymentMethod } from "@/services/features/transactions";
+import {
+  getTransactionSummary,
+  type TransactionWithPaymentMethod,
+} from "@/services/features/transactions";
 
 interface DashboardViewProps {
   wallets: PaymentMethod[];
@@ -27,13 +35,24 @@ interface DashboardViewProps {
     totalExpense: number;
     netBalance: number;
   };
+  initialDateFrom?: Date;
+  initialDateTo?: Date;
 }
 
 export function DashboardView({
   wallets,
   recentTransactions,
-  summary,
+  summary: initialSummary,
+  initialDateFrom,
+  initialDateTo,
 }: DashboardViewProps) {
+  const [summary, setSummary] = useState(initialSummary);
+  const [dateRange, setDateRange] = useState<DateRange>({
+    from: initialDateFrom ?? startOfMonth(new Date()),
+    to: initialDateTo ?? endOfMonth(new Date()),
+  });
+  const [isPending, startTransition] = useTransition();
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogType, setDialogType] = useState<
     "expense" | "income" | "transfer"
@@ -43,6 +62,19 @@ export function DashboardView({
     (acc, w) => acc + (Number(w.balance) || 0),
     0,
   );
+
+  const handleDateRangeChange = (newRange: DateRange) => {
+    setDateRange(newRange);
+    startTransition(async () => {
+      const res = await getTransactionSummary({
+        startDate: newRange.from,
+        endDate: newRange.to,
+      });
+      if (res.data) {
+        setSummary(res.data);
+      }
+    });
+  };
 
   const handleOpenTransaction = (
     type: "expense" | "income" | "transfer" = "expense",
@@ -64,18 +96,38 @@ export function DashboardView({
           </p>
         </div>
 
-        <Button
-          size="sm"
-          onClick={() => handleOpenTransaction("expense")}
-          className="gap-2 text-xs font-semibold shadow-xs"
-        >
-          <Plus className="size-3.5" />
-          <span>Add Transaction</span>
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <DateRangePicker
+            initialDateFrom={dateRange.from}
+            initialDateTo={dateRange.to}
+            onUpdate={({ range }) => {
+              if (range.from) {
+                handleDateRangeChange({
+                  from: range.from,
+                  to: range.to || range.from,
+                });
+              }
+            }}
+          />
+
+          <Button
+            size="sm"
+            onClick={() => handleOpenTransaction("expense")}
+            className="gap-2 text-xs font-semibold shadow-xs"
+          >
+            <Plus className="size-3.5" />
+            <span>Add Transaction</span>
+          </Button>
+        </div>
       </div>
 
       {/* Overview Cards */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div
+        className={cn(
+          "grid grid-cols-1 gap-3 transition-opacity sm:grid-cols-3",
+          isPending && "opacity-60",
+        )}
+      >
         {/* Total Net Balance in Wallets (Clickable Card navigating to /payments) */}
         <Link
           href="/payments"
@@ -105,10 +157,10 @@ export function DashboardView({
           </div>
         </Link>
 
-        {/* Total Income */}
+        {/* Total Income for Selected Period */}
         <div className="rounded-xl border bg-card p-4 shadow-2xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground font-medium">
+            <span className="text-xs font-medium text-muted-foreground">
               Total Income
             </span>
             <div className="rounded-full bg-emerald-500/10 p-1.5 text-emerald-600">
@@ -119,14 +171,14 @@ export function DashboardView({
             + Rp {formatCurrency(summary.totalIncome)}
           </p>
           <p className="mt-1 text-[11px] text-muted-foreground">
-            Cumulative recorded income
+            Income for selected period
           </p>
         </div>
 
-        {/* Total Expense */}
+        {/* Total Expense for Selected Period */}
         <div className="rounded-xl border bg-card p-4 shadow-2xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground font-medium">
+            <span className="text-xs font-medium text-muted-foreground">
               Total Expense
             </span>
             <div className="rounded-full bg-destructive/10 p-1.5 text-destructive">
@@ -137,7 +189,7 @@ export function DashboardView({
             - Rp {formatCurrency(summary.totalExpense)}
           </p>
           <p className="mt-1 text-[11px] text-muted-foreground">
-            Cumulative recorded expenses
+            Expense for selected period
           </p>
         </div>
       </div>

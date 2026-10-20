@@ -1,3 +1,5 @@
+import { endOfMonth, startOfMonth } from "date-fns";
+import { connection } from "next/server";
 import { Suspense } from "react";
 
 import { DashboardView } from "@/components/features/dashboard/dashboard-view";
@@ -31,10 +33,15 @@ function DashboardSkeleton() {
 }
 
 async function DashboardData() {
+  await connection();
+  const now = new Date();
+  const start = startOfMonth(now);
+  const end = endOfMonth(now);
+
   const [walletsRes, txRes, summaryRes] = await Promise.all([
     getPaymentMethods(),
     getTransactions({ limit: 5 }),
-    getTransactionSummary(),
+    getTransactionSummary({ startDate: start, endDate: end }),
   ]);
 
   const wallets = walletsRes.data ?? [];
@@ -50,6 +57,8 @@ async function DashboardData() {
       wallets={wallets}
       recentTransactions={recentTransactions}
       summary={summary}
+      initialDateFrom={start}
+      initialDateTo={end}
     />
   );
 }

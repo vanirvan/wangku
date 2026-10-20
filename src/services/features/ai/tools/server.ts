@@ -393,13 +393,14 @@ export function createAiServerTools(userId: string) {
 
     if (query?.trim()) {
       const q = `%${query.trim()}%`;
-      conditions.push(
-        or(
-          ilike(transactions.title, q),
-          ilike(transactions.description, q),
-          ilike(transactions.category, q),
-        )!,
+      const searchCondition = or(
+        ilike(transactions.title, q),
+        ilike(transactions.description, q),
+        ilike(transactions.category, q),
       );
+      if (searchCondition) {
+        conditions.push(searchCondition);
+      }
     }
 
     if (minAmount !== undefined) {
@@ -427,12 +428,13 @@ export function createAiServerTools(userId: string) {
     }
 
     if (paymentMethodId) {
-      conditions.push(
-        or(
-          eq(transactions.paymentMethodId, paymentMethodId),
-          eq(transactions.toPaymentMethodId, paymentMethodId),
-        )!,
+      const pmCondition = or(
+        eq(transactions.paymentMethodId, paymentMethodId),
+        eq(transactions.toPaymentMethodId, paymentMethodId),
       );
+      if (pmCondition) {
+        conditions.push(pmCondition);
+      }
     }
 
     if (category?.trim()) {

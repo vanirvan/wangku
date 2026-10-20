@@ -1,76 +1,29 @@
-import { ArrowDownLeft, ArrowUpRight, Scale } from "lucide-react";
+import { endOfMonth, startOfMonth } from "date-fns";
+import { connection } from "next/server";
 import { Suspense } from "react";
 
 import { TransactionList } from "@/components/features/transactions";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatCurrency, formatRupiah } from "@/lib/utils";
+import { getCategories } from "@/services/features/categories";
+import { getPaymentMethods } from "@/services/features/payments";
 import {
   getTransactionSummary,
   getTransactions,
 } from "@/services/features/transactions";
 
-function TransactionSummaryCards({
-  summary,
-}: {
-  summary: { totalIncome: number; totalExpense: number; netBalance: number };
-}) {
-  return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-      <div className="rounded-xl border bg-card p-4 shadow-2xs">
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-muted-foreground font-medium">
-            Total Income
-          </span>
-          <div className="rounded-full bg-emerald-500/10 p-1.5 text-emerald-600">
-            <ArrowUpRight className="size-3.5" />
-          </div>
-        </div>
-        <p className="mt-2 text-lg font-bold tabular-nums text-emerald-600">
-          + Rp {formatCurrency(summary.totalIncome)}
-        </p>
-      </div>
-
-      <div className="rounded-xl border bg-card p-4 shadow-2xs">
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-muted-foreground font-medium">
-            Total Expense
-          </span>
-          <div className="rounded-full bg-destructive/10 p-1.5 text-destructive">
-            <ArrowDownLeft className="size-3.5" />
-          </div>
-        </div>
-        <p className="mt-2 text-lg font-bold tabular-nums text-destructive">
-          - Rp {formatCurrency(summary.totalExpense)}
-        </p>
-      </div>
-
-      <div className="rounded-xl border bg-card p-4 shadow-2xs">
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-muted-foreground font-medium">
-            Net Cash Flow
-          </span>
-          <div className="rounded-full bg-primary/10 p-1.5 text-primary">
-            <Scale className="size-3.5" />
-          </div>
-        </div>
-        <p className="mt-2 text-lg font-bold tabular-nums">
-          {formatRupiah(summary.netBalance)}
-        </p>
-      </div>
-    </div>
-  );
-}
-
 function TransactionsSkeleton() {
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {Array.from({ length: 3 }).map((_, i) => (
           <Skeleton key={`stat-${i + 1}`} className="h-24 rounded-xl" />
         ))}
       </div>
-      <Skeleton className="h-9 w-64 rounded-lg" />
+      <div className="flex items-center justify-between">
+        <Skeleton className="h-8 w-64 rounded-lg" />
+        <Skeleton className="h-8 w-40 rounded-lg" />
+      </div>
       <div className="space-y-2">
         {Array.from({ length: 5 }).map((_, i) => (
           <Skeleton key={`row-${i + 1}`} className="h-14 rounded-xl" />
@@ -81,10 +34,19 @@ function TransactionsSkeleton() {
 }
 
 async function TransactionsData() {
-  const [txRes, summaryRes] = await Promise.all([
-    getTransactions(),
-    getTransactionSummary(),
-  ]);
+  await connection();
+  const now = new Date();
+  const start = startOfMonth(now);
+  const end = endOfMonth(now);
+
+  const [txRes, summaryRes, walletsRes, expenseCatsRes, incomeCatsRes] =
+    await Promise.all([
+      getTransactions({ startDate: start, endDate: end }),
+      getTransactionSummary({ startDate: start, endDate: end }),
+      getPaymentMethods(),
+      getCategories("expense"),
+      getCategories("income"),
+    ]);
 
   const transactions = txRes.data ?? [];
   const summary = summaryRes.data ?? {
@@ -92,12 +54,24 @@ async function TransactionsData() {
     totalExpense: 0,
     netBalance: 0,
   };
+  const wallets = walletsRes.data ?? [];
+  const categoriesList = Array.from(
+    new Set([
+      ...(expenseCatsRes.data ?? []),
+      ...(incomeCatsRes.data ?? []),
+      "Transfer",
+    ]),
+  ).sort();
 
   return (
-    <div className="space-y-6">
-      <TransactionSummaryCards summary={summary} />
-      <TransactionList initialData={transactions} />
-    </div>
+    <TransactionList
+      initialData={transactions}
+      initialSummary={summary}
+      initialDateFrom={start}
+      initialDateTo={end}
+      wallets={wallets}
+      categories={categoriesList}
+    />
   );
 }
 

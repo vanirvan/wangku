@@ -1,6 +1,6 @@
 "use server";
 
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, gte, ilike, lte, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { revalidatePath } from "next/cache";
 
@@ -16,7 +16,9 @@ import type {
   TransactionWithPaymentMethod,
 } from "./types";
 
-export async function getTransactions(filter?: GetTransactionsFilter) {
+export async function getTransactions(
+  filter?: GetTransactionsFilter,
+): Promise<{ data: TransactionWithPaymentMethod[]; error?: string }> {
   const { user, error } = await requireAuthUser();
   if (error) return { error: error.error, data: [] };
 
@@ -30,6 +32,27 @@ export async function getTransactions(filter?: GetTransactionsFilter) {
   }
   if (filter?.category) {
     conditions.push(eq(transactions.category, filter.category));
+  }
+  if (filter?.startDate) {
+    const start = new Date(filter.startDate);
+    start.setHours(0, 0, 0, 0);
+    conditions.push(gte(transactions.date, start));
+  }
+  if (filter?.endDate) {
+    const end = new Date(filter.endDate);
+    end.setHours(23, 59, 59, 999);
+    conditions.push(lte(transactions.date, end));
+  }
+  if (filter?.search?.trim()) {
+    const q = `%${filter.search.trim()}%`;
+    const searchCondition = or(
+      ilike(transactions.title, q),
+      ilike(transactions.category, q),
+      ilike(transactions.description, q),
+    );
+    if (searchCondition) {
+      conditions.push(searchCondition);
+    }
   }
 
   const toPaymentMethods = alias(paymentMethods, "to_payment_methods");
@@ -471,7 +494,10 @@ export async function deleteTransaction(
   return { success: true };
 }
 
-export async function getTransactionSummary() {
+export async function getTransactionSummary(filter?: {
+  startDate?: Date | string;
+  endDate?: Date | string;
+}) {
   const user = await getSessionUser();
   if (!user) {
     return {
@@ -479,19 +505,28 @@ export async function getTransactionSummary() {
     };
   }
 
+  const baseConditions = [eq(transactions.userId, user.id)];
+
+  if (filter?.startDate) {
+    const start = new Date(filter.startDate);
+    start.setHours(0, 0, 0, 0);
+    baseConditions.push(gte(transactions.date, start));
+  }
+  if (filter?.endDate) {
+    const end = new Date(filter.endDate);
+    end.setHours(23, 59, 59, 999);
+    baseConditions.push(lte(transactions.date, end));
+  }
+
   const [incomeRow] = await db
     .select({ total: sql<string>`coalesce(sum(${transactions.amount}), 0)` })
     .from(transactions)
-    .where(
-      and(eq(transactions.userId, user.id), eq(transactions.type, "income")),
-    );
+    .where(and(...baseConditions, eq(transactions.type, "income")));
 
   const [expenseRow] = await db
     .select({ total: sql<string>`coalesce(sum(${transactions.amount}), 0)` })
     .from(transactions)
-    .where(
-      and(eq(transactions.userId, user.id), eq(transactions.type, "expense")),
-    );
+    .where(and(...baseConditions, eq(transactions.type, "expense")));
 
   const totalIncome = Number(incomeRow?.total) || 0;
   const totalExpense = Number(expenseRow?.total) || 0;
