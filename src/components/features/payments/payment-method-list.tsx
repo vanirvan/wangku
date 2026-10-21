@@ -3,10 +3,10 @@
 import { Plus, Search, Wallet } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { useCurrency } from "@/components/providers/currency-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { PaymentMethod } from "@/lib/db/schemas";
-import { formatRupiah } from "@/lib/utils";
 import {
   deletePaymentMethod,
   invalidatePaymentMethodsCache,
@@ -37,6 +37,7 @@ export function PaymentMethodList({
   initialData,
   onDelete,
 }: PaymentMethodListProps) {
+  const { convert, baseCurrency, format } = useCurrency();
   const items = initialData ?? initialPaymentMethods ?? [];
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState<"all" | PaymentMethodType>("all");
@@ -59,15 +60,18 @@ export function PaymentMethodList({
 
     for (const item of items) {
       const bal = Number(item.balance || 0);
+      const itemCurrency = item.currency || "IDR";
+      const convertedBal = convert(bal, itemCurrency, baseCurrency);
+
       if (item.type === "cash") {
         cash++;
-        liquid += bal;
+        liquid += convertedBal;
       } else if (item.type === "bank") {
         bank++;
-        liquid += bal;
+        liquid += convertedBal;
       } else if (item.type === "ewallet") {
         ewallet++;
-        liquid += bal;
+        liquid += convertedBal;
       } else if (item.type === "card") {
         card++;
       } else {
@@ -84,11 +88,11 @@ export function PaymentMethodList({
     if (other > 0) parts.push(`${other} ${other === 1 ? "Other" : "Others"}`);
 
     return { liquidBalance: liquid, cardCount: card, breakdown: parts };
-  }, [items]);
+  }, [items, convert, baseCurrency]);
 
   const formattedLiquidBalance = useMemo(() => {
-    return formatRupiah(liquidBalance);
-  }, [liquidBalance]);
+    return format(liquidBalance, baseCurrency);
+  }, [liquidBalance, format, baseCurrency]);
 
   const filtered = useMemo(() => {
     return items.filter((item) => {
@@ -179,81 +183,62 @@ export function PaymentMethodList({
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div className="relative w-full sm:w-64">
-            <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="Search wallets..."
+              type="search"
+              placeholder="Filter accounts..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-9"
+              className="h-9 pl-8 text-sm"
             />
           </div>
 
-          <Button onClick={handleOpenCreate} size="sm" className="shrink-0">
+          <Button
+            onClick={handleOpenCreate}
+            size="sm"
+            className="shrink-0 gap-1.5"
+          >
             <Plus className="size-4" />
-            <span>Add Wallet</span>
+            <span>Add Account</span>
           </Button>
         </div>
 
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-          {FILTER_TABS.map((tab) => {
-            const isActive = activeTab === tab.value;
-            return (
-              <button
-                key={tab.value}
-                type="button"
-                onClick={() => setActiveTab(tab.value)}
-                className={`shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                  isActive
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
-                }`}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
+          {FILTER_TABS.map((tab) => (
+            <Button
+              key={tab.value}
+              variant={activeTab === tab.value ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => setActiveTab(tab.value)}
+              className="h-7 text-xs font-medium shrink-0"
+            >
+              {tab.label}
+            </Button>
+          ))}
         </div>
       </div>
 
+      {/* Account Cards Grid */}
       {filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border p-12 text-center">
-          <div className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-12 text-center">
+          <div className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground mb-3">
             <Wallet className="size-6" />
           </div>
-          {items.length === 0 ? (
-            <>
-              <h3 className="mt-3 font-semibold text-base">
-                No payment methods added
-              </h3>
-              <p className="mt-1 max-w-sm text-muted-foreground text-sm">
-                Get started by adding your first payment method or wallet to
-                manage your transactions.
-              </p>
-              <Button onClick={handleOpenCreate} size="sm" className="mt-4">
-                <Plus className="size-4" />
-                <span>Add Wallet</span>
-              </Button>
-            </>
-          ) : (
-            <>
-              <h3 className="mt-3 font-semibold text-base">
-                No matching payment methods
-              </h3>
-              <p className="mt-1 max-w-sm text-muted-foreground text-sm">
-                No wallets match your current search or filter criteria.
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-4"
-                onClick={() => {
-                  setSearch("");
-                  setActiveTab("all");
-                }}
-              >
-                Clear filters
-              </Button>
-            </>
+          <h3 className="font-semibold text-base">No payment methods found</h3>
+          <p className="mt-1 text-muted-foreground text-sm max-w-sm">
+            {search
+              ? "No accounts matched your search criteria."
+              : "Start by adding a bank account, cash, or e-wallet."}
+          </p>
+          {!search && (
+            <Button
+              onClick={handleOpenCreate}
+              size="sm"
+              className="mt-4 gap-1.5"
+            >
+              <Plus className="size-4" />
+              <span>Add Your First Account</span>
+            </Button>
           )}
         </div>
       ) : (
@@ -268,6 +253,7 @@ export function PaymentMethodList({
         </div>
       )}
 
+      {/* Create / Edit Dialog */}
       <PaymentMethodDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
@@ -275,13 +261,14 @@ export function PaymentMethodList({
         onDelete={handleTriggerDelete}
       />
 
+      {/* Delete Confirmation Dialog */}
       <DeletePaymentMethodDialog
         open={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}
         paymentMethod={deletingItem}
+        onConfirm={handleConfirmDelete}
         loading={deleteLoading}
         error={deleteError}
-        onConfirm={handleConfirmDelete}
       />
     </div>
   );

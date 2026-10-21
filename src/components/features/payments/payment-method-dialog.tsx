@@ -13,10 +13,20 @@ import {
   Smartphone,
   Trash2,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 
+import { useCurrency } from "@/components/providers/currency-provider";
 import { Button } from "@/components/ui/button";
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+} from "@/components/ui/combobox";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import {
   Dialog,
   DialogClose,
@@ -37,12 +47,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { getCurrencyConfig, SUPPORTED_CURRENCIES } from "@/lib/currency";
 import type { PaymentMethod } from "@/lib/db/schemas";
-import { formatCurrency } from "@/lib/utils";
 import {
   createPaymentMethod,
   invalidatePaymentMethodsCache,
   type PaymentMethodFormValues,
+  type PaymentMethodInput,
   type PaymentMethodType,
   paymentMethodSchema,
   updatePaymentMethod,
@@ -118,9 +129,8 @@ export function PaymentMethodDialog({
   onDelete,
 }: PaymentMethodDialogProps) {
   const isEditing = Boolean(paymentMethod);
-  const [formattedBalance, setFormattedBalance] = useState("0");
+  const { baseCurrency } = useCurrency();
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const balanceInputRef = useRef<HTMLInputElement>(null);
 
   const {
     register,
@@ -129,164 +139,90 @@ export function PaymentMethodDialog({
     reset,
     watch,
     formState: { errors, isSubmitting },
-  } = useForm({
+  } = useForm<PaymentMethodInput, unknown, PaymentMethodFormValues>({
     resolver: zodResolver(paymentMethodSchema),
     defaultValues: {
       name: "",
       type: "cash" as PaymentMethodType,
+      currency: baseCurrency,
       balance: 0,
     },
   });
 
   const currentName = watch("name");
   const currentType = watch("type");
+  const currentCurrency = watch("currency") || baseCurrency;
+  const currentBalance = watch("balance");
 
   useEffect(() => {
     register("balance");
+    register("currency");
   }, [register]);
 
   useEffect(() => {
     if (open) {
-      const validTypes: PaymentMethodType[] = [
-        "cash",
-        "bank",
-        "ewallet",
-        "card",
-        "other",
-      ];
-      const initialType = validTypes.includes(
-        paymentMethod?.type as PaymentMethodType,
-      )
-        ? (paymentMethod?.type as PaymentMethodType)
-        : "cash";
-
-      const initialBalance =
-        paymentMethod?.balance !== undefined && paymentMethod?.balance !== null
-          ? Number(paymentMethod.balance) || 0
-          : 0;
-
-      reset({
-        name: paymentMethod?.name ?? "",
-        type: initialType,
-        balance: initialBalance,
-      });
-      setFormattedBalance(
-        initialBalance > 0 ? formatCurrency(initialBalance) : "0",
-      );
       setSubmitError(null);
-    }
-  }, [open, paymentMethod, reset]);
+      if (paymentMethod) {
+        const validTypes: PaymentMethodType[] = [
+          "cash",
+          "bank",
+          "ewallet",
+          "card",
+          "other",
+        ];
+        const safeType = validTypes.includes(
+          paymentMethod.type as PaymentMethodType,
+        )
+          ? (paymentMethod.type as PaymentMethodType)
+          : "other";
 
-  const handlePresetSelect = (preset: {
-    name: string;
-    type: PaymentMethodType;
-  }) => {
-    setValue("name", preset.name, {
-      shouldValidate: true,
-      shouldDirty: true,
-    });
-    setValue("type", preset.type, {
-      shouldValidate: true,
-      shouldDirty: true,
-    });
-  };
-
-  const handleBalanceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const input = e.target;
-    const cursor = input.selectionStart ?? 0;
-    const oldVal = input.value;
-    const digitsBeforeCursor = oldVal
-      .slice(0, cursor)
-      .replace(/\D/g, "").length;
-    const formatted = formatCurrency(oldVal);
-
-    setFormattedBalance(formatted);
-    const rawDigits = oldVal.replace(/\D/g, "");
-    setValue("balance", rawDigits ? Number(rawDigits) : 0, {
-      shouldValidate: true,
-      shouldDirty: true,
-    });
-
-    requestAnimationFrame(() => {
-      if (!balanceInputRef.current) return;
-      let newCursor = 0;
-      let digitsCount = 0;
-      for (let i = 0; i < formatted.length; i++) {
-        if (digitsCount >= digitsBeforeCursor) {
-          newCursor = i;
-          break;
-        }
-        if (/\d/.test(formatted[i])) {
-          digitsCount++;
-        }
-        newCursor = i + 1;
-      }
-      balanceInputRef.current.setSelectionRange(newCursor, newCursor);
-    });
-  };
-
-  const handleBalanceKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Backspace") {
-      const input = e.currentTarget;
-      const { selectionStart, selectionEnd, value } = input;
-      if (
-        selectionStart !== null &&
-        selectionStart === selectionEnd &&
-        selectionStart > 1 &&
-        value[selectionStart - 1] === "."
-      ) {
-        e.preventDefault();
-        const before = value.slice(0, selectionStart - 2);
-        const after = value.slice(selectionStart);
-        const newVal = before + after;
-        const formatted = formatCurrency(newVal);
-        setFormattedBalance(formatted);
-        const rawDigits = newVal.replace(/\D/g, "");
-        setValue("balance", rawDigits ? Number(rawDigits) : 0, {
-          shouldValidate: true,
-          shouldDirty: true,
+        reset({
+          name: paymentMethod.name,
+          type: safeType,
+          currency: paymentMethod.currency || baseCurrency,
+          balance: Number(paymentMethod.balance) || 0,
         });
-
-        requestAnimationFrame(() => {
-          if (!balanceInputRef.current) return;
-          const targetDigits = before.replace(/\D/g, "").length;
-          let newCursor = 0;
-          let count = 0;
-          for (let i = 0; i < formatted.length; i++) {
-            if (count >= targetDigits) {
-              newCursor = i;
-              break;
-            }
-            if (/\d/.test(formatted[i])) count++;
-            newCursor = i + 1;
-          }
-          balanceInputRef.current.setSelectionRange(newCursor, newCursor);
+      } else {
+        reset({
+          name: "",
+          type: "cash",
+          currency: baseCurrency,
+          balance: 0,
         });
       }
     }
-  };
+  }, [open, paymentMethod, reset, baseCurrency]);
 
-  const onFormSubmit = async (values: PaymentMethodFormValues) => {
+  const onSubmit = async (values: PaymentMethodFormValues) => {
     setSubmitError(null);
     try {
-      const res =
-        isEditing && paymentMethod
-          ? await updatePaymentMethod(paymentMethod.id, values)
-          : await createPaymentMethod(values);
-
-      if (res.error) {
-        setSubmitError(res.error);
-        return;
+      if (isEditing && paymentMethod) {
+        const res = await updatePaymentMethod(paymentMethod.id, values);
+        if (res.error) {
+          setSubmitError(res.error);
+          return;
+        }
+      } else {
+        const res = await createPaymentMethod(values);
+        if (res.error) {
+          setSubmitError(res.error);
+          return;
+        }
       }
 
       invalidatePaymentMethodsCache();
-      onOpenChange(false);
       onSuccess?.();
+      onOpenChange(false);
     } catch (err) {
       setSubmitError(
-        err instanceof Error ? err.message : "Failed to save payment method",
+        err instanceof Error ? err.message : "An unexpected error occurred",
       );
     }
+  };
+
+  const handleSelectPreset = (name: string, type: PaymentMethodType) => {
+    setValue("name", name, { shouldValidate: true, shouldDirty: true });
+    setValue("type", type, { shouldValidate: true, shouldDirty: true });
   };
 
   const handleDeleteClick = () => {
@@ -296,130 +232,118 @@ export function PaymentMethodDialog({
     }
   };
 
-  const activeMorePreset = [...POPULAR_BANKS, ...POPULAR_EWALLETS].find(
-    (preset) => preset.name === currentName && preset.type === currentType,
-  );
+  const activeCurrencyConfig = getCurrencyConfig(currentCurrency);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader className="pb-1">
-          <DialogTitle className="text-base sm:text-lg">
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>
             {isEditing ? "Edit Payment Method" : "Add Payment Method"}
           </DialogTitle>
-          <DialogDescription className="text-xs">
+          <DialogDescription>
             {isEditing
-              ? "Update your payment method or wallet details."
-              : "Create a new wallet or account to track your balances."}
+              ? "Update the details and balance for this account."
+              : "Create a new wallet, bank account, card, or e-wallet."}
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit(onFormSubmit)} className="space-y-3.5">
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium text-muted-foreground">
-              Quick Presets
-            </Label>
-            <div className="flex flex-wrap items-center gap-1.5">
-              {TOP_PRESETS.map((preset) => {
-                const isActive =
-                  currentName === preset.name && currentType === preset.type;
-                return (
-                  <button
-                    key={preset.name}
-                    type="button"
-                    onClick={() => handlePresetSelect(preset)}
-                    disabled={isSubmitting}
-                    className={cn(
-                      "h-7 rounded-md border px-2.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                      isActive
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border bg-background text-muted-foreground hover:border-foreground/20 hover:text-foreground",
-                    )}
-                  >
-                    {preset.name}
-                  </button>
-                );
-              })}
-
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
-                    <button
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 pt-1">
+          {/* Quick Presets (Only when creating) */}
+          {!isEditing && (
+            <div className="space-y-1.5">
+              <Label className="text-muted-foreground text-xs font-medium">
+                Quick Presets
+              </Label>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {TOP_PRESETS.map((p) => {
+                  const isSelected =
+                    currentName === p.name && currentType === p.type;
+                  return (
+                    <Button
+                      key={p.name}
                       type="button"
-                      disabled={isSubmitting}
+                      variant={isSelected ? "secondary" : "outline"}
+                      size="sm"
+                      onClick={() => handleSelectPreset(p.name, p.type)}
                       className={cn(
-                        "flex h-7 items-center gap-1 rounded-md border px-2.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        activeMorePreset
-                          ? "border-primary bg-primary/10 text-primary"
-                          : "border-border bg-background text-muted-foreground hover:border-foreground/20 hover:text-foreground",
+                        "h-7 text-xs font-normal",
+                        isSelected && "border-foreground/30 font-medium",
                       )}
                     >
-                      <span>
-                        {activeMorePreset
-                          ? activeMorePreset.name
-                          : "More Presets"}
-                      </span>
-                      <ChevronDown className="size-3 opacity-60" />
-                    </button>
-                  }
-                />
-                <DropdownMenuContent
-                  align="start"
-                  className="max-h-72 w-52 overflow-y-auto"
-                >
-                  <DropdownMenuGroup>
-                    <DropdownMenuLabel className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Popular Banks (10)
-                    </DropdownMenuLabel>
-                    {POPULAR_BANKS.map((preset) => (
-                      <DropdownMenuItem
-                        key={preset.name}
-                        onClick={() => handlePresetSelect(preset)}
-                        className="flex cursor-pointer items-center justify-between text-xs"
-                      >
-                        <span>{preset.name}</span>
-                        {currentName === preset.name &&
-                          currentType === preset.type && (
-                            <Check className="size-3.5 text-primary" />
-                          )}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuGroup>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuGroup>
-                    <DropdownMenuLabel className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      E-Wallets (10)
-                    </DropdownMenuLabel>
-                    {POPULAR_EWALLETS.map((preset) => (
-                      <DropdownMenuItem
-                        key={preset.name}
-                        onClick={() => handlePresetSelect(preset)}
-                        className="flex cursor-pointer items-center justify-between text-xs"
-                      >
-                        <span>{preset.name}</span>
-                        {currentName === preset.name &&
-                          currentType === preset.type && (
-                            <Check className="size-3.5 text-primary" />
-                          )}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
+                      {p.name}
+                    </Button>
+                  );
+                })}
 
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs text-muted-foreground"
+                      />
+                    }
+                  >
+                    <span>More</span>
+                    <ChevronDown className="ml-1 size-3 opacity-60" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-48">
+                    <DropdownMenuGroup>
+                      <DropdownMenuLabel className="text-xs text-muted-foreground">
+                        Banks
+                      </DropdownMenuLabel>
+                      {POPULAR_BANKS.map((bank) => (
+                        <DropdownMenuItem
+                          key={bank.name}
+                          onClick={() =>
+                            handleSelectPreset(bank.name, bank.type)
+                          }
+                          className="flex items-center justify-between text-xs"
+                        >
+                          <span>{bank.name}</span>
+                          {currentName === bank.name && (
+                            <Check className="size-3 text-primary" />
+                          )}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuGroup>
+                      <DropdownMenuLabel className="text-xs text-muted-foreground">
+                        E-Wallets
+                      </DropdownMenuLabel>
+                      {POPULAR_EWALLETS.map((ew) => (
+                        <DropdownMenuItem
+                          key={ew.name}
+                          onClick={() => handleSelectPreset(ew.name, ew.type)}
+                          className="flex items-center justify-between text-xs"
+                        >
+                          <span>{ew.name}</span>
+                          {currentName === ew.name && (
+                            <Check className="size-3 text-primary" />
+                          )}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+          )}
+
+          {/* Account Name */}
           <div className="space-y-1.5">
             <Label htmlFor="payment-name" className="text-xs font-medium">
-              Wallet / Account Name
+              Account / Wallet Name
             </Label>
             <Input
               id="payment-name"
-              placeholder="e.g. BCA, GoPay, Dompet Utama"
+              placeholder="e.g. BCA Main, Cash, GoPay"
               {...register("name")}
-              value={currentName ?? ""}
               disabled={isSubmitting}
-              autoFocus
               className="text-sm"
               aria-invalid={Boolean(errors.name)}
             />
@@ -430,33 +354,84 @@ export function PaymentMethodDialog({
             )}
           </div>
 
+          {/* Currency Selection */}
+          <div className="space-y-1.5">
+            <Label htmlFor="payment-currency" className="text-xs font-medium">
+              Currency
+            </Label>
+            <Combobox
+              items={SUPPORTED_CURRENCIES}
+              itemToStringLabel={(c: (typeof SUPPORTED_CURRENCIES)[number]) =>
+                c ? `${c.flag} ${c.code} (${c.symbol})` : ""
+              }
+              itemToStringValue={(c: (typeof SUPPORTED_CURRENCIES)[number]) =>
+                c ? `${c.code} ${c.name}` : ""
+              }
+              isItemEqualToValue={(
+                a: (typeof SUPPORTED_CURRENCIES)[number],
+                b: (typeof SUPPORTED_CURRENCIES)[number],
+              ) => a?.code === b?.code}
+              value={activeCurrencyConfig}
+              onValueChange={(
+                val: (typeof SUPPORTED_CURRENCIES)[number] | null,
+              ) => {
+                if (val?.code) {
+                  setValue("currency", val.code, {
+                    shouldValidate: true,
+                    shouldDirty: true,
+                  });
+                }
+              }}
+            >
+              <ComboboxInput
+                id="payment-currency"
+                placeholder="Select currency..."
+              />
+              <ComboboxContent>
+                <ComboboxEmpty>No currency found.</ComboboxEmpty>
+                <ComboboxList>
+                  {(c: (typeof SUPPORTED_CURRENCIES)[number]) => (
+                    <ComboboxItem key={c.code} value={c}>
+                      <span className="mr-2">{c.flag}</span>
+                      <span className="font-medium mr-1.5">{c.code}</span>
+                      <span className="text-muted-foreground text-xs">
+                        {c.name} ({c.symbol})
+                      </span>
+                    </ComboboxItem>
+                  )}
+                </ComboboxList>
+              </ComboboxContent>
+            </Combobox>
+          </div>
+
+          {/* Account Type */}
           <div className="space-y-1.5">
             <Label className="text-xs font-medium">Type</Label>
             <div className="grid grid-cols-5 gap-1.5">
-              {PAYMENT_TYPES.map((item) => {
-                const Icon = item.icon;
-                const isSelected = currentType === item.value;
+              {PAYMENT_TYPES.map((t) => {
+                const Icon = t.icon;
+                const isSelected = currentType === t.value;
                 return (
-                  <button
-                    key={item.value}
+                  <Button
+                    key={t.value}
                     type="button"
+                    variant={isSelected ? "secondary" : "outline"}
+                    size="sm"
                     onClick={() =>
-                      setValue("type", item.value, {
+                      setValue("type", t.value, {
                         shouldValidate: true,
                         shouldDirty: true,
                       })
                     }
-                    disabled={isSubmitting}
                     className={cn(
-                      "flex flex-col items-center justify-center gap-1 rounded-lg border px-1 py-1.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                      isSelected
-                        ? "border-primary bg-primary/10 text-primary font-medium shadow-2xs"
-                        : "border-border bg-background text-muted-foreground hover:border-foreground/20 hover:text-foreground",
+                      "flex h-auto flex-col items-center gap-1 py-2 px-1 text-center transition-all",
+                      isSelected &&
+                        "border-foreground/30 bg-muted font-medium shadow-2xs",
                     )}
                   >
-                    <Icon className="size-3.5 shrink-0" />
-                    <span className="truncate text-[11px]">{item.label}</span>
-                  </button>
+                    <Icon className="size-4 shrink-0" />
+                    <span className="text-[11px] leading-tight">{t.label}</span>
+                  </Button>
                 );
               })}
             </div>
@@ -467,30 +442,24 @@ export function PaymentMethodDialog({
             )}
           </div>
 
+          {/* Balance Input with CurrencyInput */}
           <div className="space-y-1.5">
             <Label htmlFor="payment-balance" className="text-xs font-medium">
-              Initial Balance
+              {isEditing ? "Current Balance" : "Initial Balance"}
             </Label>
-            <div className="relative">
-              <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                <span className="select-none text-xs font-semibold text-muted-foreground">
-                  Rp
-                </span>
-              </div>
-              <Input
-                ref={balanceInputRef}
-                id="payment-balance"
-                type="text"
-                inputMode="numeric"
-                placeholder="0"
-                value={formattedBalance}
-                onChange={handleBalanceChange}
-                onKeyDown={handleBalanceKeyDown}
-                disabled={isSubmitting}
-                className="pl-9 font-medium tabular-nums text-sm"
-                aria-invalid={Boolean(errors.balance)}
-              />
-            </div>
+            <CurrencyInput
+              id="payment-balance"
+              value={Number(currentBalance) || 0}
+              currencyCode={currentCurrency}
+              onChange={(val) =>
+                setValue("balance", val, {
+                  shouldValidate: true,
+                  shouldDirty: true,
+                })
+              }
+              disabled={isSubmitting}
+              aria-invalid={Boolean(errors.balance)}
+            />
             {errors.balance && (
               <p className="text-[11px] text-destructive">
                 {errors.balance.message}
@@ -521,17 +490,32 @@ export function PaymentMethodDialog({
               <div />
             )}
 
-            <div className="flex items-center justify-end gap-2">
+            <div className="flex items-center gap-2">
               <DialogClose
                 render={
-                  <Button variant="outline" size="sm" disabled={isSubmitting}>
-                    Cancel
-                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={isSubmitting}
+                  />
                 }
-              />
-              <Button type="submit" size="sm" disabled={isSubmitting}>
-                {isSubmitting && <Loader2 className="size-4 animate-spin" />}
-                {isEditing ? "Save Changes" : "Create Wallet"}
+              >
+                Cancel
+              </DialogClose>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={isSubmitting}
+                className="min-w-20"
+              >
+                {isSubmitting ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : isEditing ? (
+                  "Save Changes"
+                ) : (
+                  "Create Account"
+                )}
               </Button>
             </div>
           </DialogFooter>

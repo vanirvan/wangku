@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "cn";
+import { endOfMonth, startOfMonth } from "date-fns";
 import {
   ArrowDownLeft,
   ArrowLeftRight,
@@ -16,7 +17,7 @@ import {
   Wallet,
 } from "lucide-react";
 import Link from "next/link";
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import {
   Area,
   AreaChart,
@@ -31,13 +32,14 @@ import {
 } from "recharts";
 
 import { TransactionDialog } from "@/components/features/transactions";
+import { useCurrency } from "@/components/providers/currency-provider";
 import { Button } from "@/components/ui/button";
 import {
   type DateRange,
   DateRangePicker,
 } from "@/components/ui/date-range-picker";
+import { formatCompactMoney } from "@/lib/currency";
 import type { PaymentMethod } from "@/lib/db/schemas";
-import { formatRupiah } from "@/lib/utils";
 import {
   type CategoryBreakdownItem,
   type DailyCashFlowItem,
@@ -88,9 +90,10 @@ export function DashboardView({
   const [chartFlowFilter, setChartFlowFilter] = useState<
     "all" | "income" | "expense"
   >("all");
+  const { baseCurrency, format, convert } = useCurrency();
   const [dateRange, setDateRange] = useState<DateRange>({
-    from: initialDateFrom,
-    to: initialDateTo,
+    from: initialDateFrom ?? startOfMonth(new Date()),
+    to: initialDateTo ?? endOfMonth(new Date()),
   });
   const [isPending, startTransition] = useTransition();
 
@@ -99,10 +102,14 @@ export function DashboardView({
     "expense" | "income" | "transfer"
   >("expense");
 
-  const totalWalletBalance = wallets.reduce(
-    (acc, w) => acc + (Number(w.balance) || 0),
-    0,
-  );
+  const totalWalletBalance = useMemo(() => {
+    return wallets.reduce(
+      (acc, w) =>
+        acc +
+        convert(Number(w.balance) || 0, w.currency || "IDR", baseCurrency),
+      0,
+    );
+  }, [wallets, convert, baseCurrency]);
 
   const handleDateRangeChange = (newRange: DateRange) => {
     setDateRange(newRange);
@@ -213,7 +220,7 @@ export function DashboardView({
               </div>
             </div>
             <p className="mt-2 text-xl font-bold tabular-nums">
-              {formatRupiah(totalWalletBalance)}
+              {format(totalWalletBalance, baseCurrency)}
             </p>
           </div>
 
@@ -238,7 +245,7 @@ export function DashboardView({
               </div>
             </div>
             <p className="mt-2 text-xl font-bold tabular-nums text-emerald-600 dark:text-emerald-400">
-              +{formatRupiah(summary.totalIncome)}
+              +{format(summary.totalIncome, baseCurrency)}
             </p>
           </div>
           <p className="mt-2 text-[11px] text-muted-foreground">
@@ -258,7 +265,7 @@ export function DashboardView({
               </div>
             </div>
             <p className="mt-2 text-xl font-bold tabular-nums text-destructive">
-              -{formatRupiah(summary.totalExpense)}
+              -{format(summary.totalExpense, baseCurrency)}
             </p>
           </div>
           <p className="mt-2 text-[11px] text-muted-foreground">
@@ -286,13 +293,13 @@ export function DashboardView({
               )}
             >
               {summary.netBalance >= 0 ? "+" : ""}
-              {formatRupiah(summary.netBalance)}
+              {format(summary.netBalance, baseCurrency)}
             </p>
           </div>
           <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
             <span>Savings rate</span>
             <span className="font-semibold text-foreground">
-              {summary.totalIncome > 0 ? `${savingsRate}%` : "—"}
+              {summary.totalIncome > 0 ? `${savingsRate}%` : "-"}
             </span>
           </div>
         </div>
@@ -437,13 +444,9 @@ export function DashboardView({
                       tickMargin={8}
                       fontSize={10}
                       stroke="var(--muted-foreground)"
-                      tickFormatter={(value) => {
-                        if (value >= 1_000_000)
-                          return `${(value / 1_000_000).toFixed(1)}M`;
-                        if (value >= 1_000)
-                          return `${(value / 1_000).toFixed(0)}k`;
-                        return value;
-                      }}
+                      tickFormatter={(value) =>
+                        formatCompactMoney(value, baseCurrency)
+                      }
                     />
                     <Tooltip
                       content={({ active, payload }) => {
@@ -469,7 +472,7 @@ export function DashboardView({
                                   Income:
                                 </span>
                                 <span className="font-bold tabular-nums">
-                                  {formatRupiah(data.income)}
+                                  {format(data.income, baseCurrency)}
                                 </span>
                               </div>
                             )}
@@ -480,7 +483,7 @@ export function DashboardView({
                                   Expense:
                                 </span>
                                 <span className="font-bold tabular-nums">
-                                  {formatRupiah(data.expense)}
+                                  {format(data.expense, baseCurrency)}
                                 </span>
                               </div>
                             )}
@@ -535,7 +538,7 @@ export function DashboardView({
                 </div>
               </div>
               <span className="text-xs font-semibold tabular-nums text-muted-foreground">
-                {formatRupiah(summary.totalExpense)}
+                {format(summary.totalExpense, baseCurrency)}
               </span>
             </div>
 
@@ -592,7 +595,7 @@ export function DashboardView({
                                 </span>
                               </div>
                               <p className="text-muted-foreground text-[11px] font-medium tabular-nums">
-                                {formatRupiah(d.total)}
+                                {format(d.total, baseCurrency)}
                               </p>
                             </div>
                           );
@@ -623,7 +626,7 @@ export function DashboardView({
                       </div>
                       <div className="flex items-center gap-2 tabular-nums">
                         <span className="text-muted-foreground">
-                          {formatRupiah(cat.total)}
+                          {format(cat.total, baseCurrency)}
                         </span>
                         <span className="font-semibold text-[11px] text-foreground w-8 text-right">
                           {cat.percentage}%
@@ -687,7 +690,7 @@ export function DashboardView({
                       </div>
                     </div>
                     <span className="font-semibold tabular-nums text-foreground">
-                      {formatRupiah(wallet.balance)}
+                      {format(wallet.balance, wallet.currency || baseCurrency)}
                     </span>
                   </div>
                 ))
@@ -849,7 +852,12 @@ export function DashboardView({
                       >
                         {isExpense && "- "}
                         {isIncome && "+ "}
-                        {formatRupiah(tx.amount)}
+                        {format(
+                          tx.amount,
+                          tx.currency ||
+                            tx.paymentMethod?.currency ||
+                            baseCurrency,
+                        )}
                       </span>
                     </div>
                   </div>

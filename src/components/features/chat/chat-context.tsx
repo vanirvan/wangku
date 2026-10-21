@@ -61,6 +61,15 @@ function getStoredMessages(): UIMessage[] {
   return [];
 }
 
+const DEFAULT_CHAT_CONTEXT: ChatContextValue = {
+  messages: [],
+  sendMessage: async () => {},
+  isLoading: false,
+  error: undefined,
+  stop: () => {},
+  clearChat: () => {},
+};
+
 export function ChatProvider({ children }: { children: ReactNode }) {
   const [chatKey, setChatKey] = useState(0);
   const [initialMessages, setInitialMessages] = useState<UIMessage[]>([]);
@@ -82,7 +91,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, []);
 
   if (!isReady) {
-    return <>{children}</>;
+    return (
+      <ChatContext.Provider value={DEFAULT_CHAT_CONTEXT}>
+        {children}
+      </ChatContext.Provider>
+    );
   }
 
   return (
@@ -138,8 +151,5 @@ function ActiveChatInstance({
 
 export function useChatContext() {
   const ctx = useContext(ChatContext);
-  if (!ctx) {
-    throw new Error("useChatContext must be used within a ChatProvider");
-  }
-  return ctx;
+  return ctx ?? DEFAULT_CHAT_CONTEXT;
 }

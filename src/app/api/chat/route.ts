@@ -16,6 +16,7 @@ import { db } from "@/lib/db";
 import { aiSettings } from "@/lib/db/schemas/ai-settings-schema";
 import { getSystemPrompt } from "@/services/features/ai";
 import { createAiServerTools } from "@/services/features/ai/tools";
+import { getUserSettings } from "@/services/features/settings";
 
 export async function POST(request: Request) {
   const session = await auth.api.getSession({
@@ -112,7 +113,10 @@ export async function POST(request: Request) {
       );
   }
 
-  const tools = createAiServerTools(session.user.id);
+  const [{ data: userPref }, tools] = await Promise.all([
+    getUserSettings(),
+    Promise.resolve(createAiServerTools(session.user.id)),
+  ]);
   const abortController = new AbortController();
 
   try {
@@ -120,7 +124,11 @@ export async function POST(request: Request) {
       adapter,
       messages,
       tools,
-      systemPrompts: [getSystemPrompt()],
+      systemPrompts: [
+        getSystemPrompt({
+          baseCurrency: userPref?.baseCurrency || "IDR",
+        }),
+      ],
       abortController,
     });
 

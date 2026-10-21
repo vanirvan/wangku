@@ -3,7 +3,10 @@ import { z } from "zod";
 export const transactionSchema = z
   .object({
     type: z.enum(["income", "expense", "transfer"]),
+    currency: z.string().trim().min(1).default("IDR"),
     amount: z.coerce.number().positive("Amount must be greater than 0"),
+    toAmount: z.coerce.number().positive().optional().nullable(),
+    exchangeRate: z.coerce.number().positive().optional().nullable(),
     title: z
       .string()
       .trim()

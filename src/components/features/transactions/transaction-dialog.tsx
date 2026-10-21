@@ -12,6 +12,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 
+import { useCurrency } from "@/components/providers/currency-provider";
 import { Button } from "@/components/ui/button";
 import {
   Combobox,
@@ -21,6 +22,7 @@ import {
   ComboboxItem,
   ComboboxList,
 } from "@/components/ui/combobox";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import {
   Dialog,
   DialogClose,
@@ -33,7 +35,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { PaymentMethod } from "@/lib/db/schemas";
-import { formatCurrency, formatRupiah } from "@/lib/utils";
 import {
   DEFAULT_EXPENSE_CATEGORIES,
   DEFAULT_INCOME_CATEGORIES,
@@ -81,6 +82,8 @@ export function TransactionDialog({
   transaction = null,
 }: TransactionDialogProps) {
   const isEditing = Boolean(transaction);
+  const { convert, baseCurrency, format } = useCurrency();
+
   const [wallets, setWallets] = useState<PaymentMethod[]>(
     () => getCachedPaymentMethodsSync() ?? [],
   );
@@ -91,12 +94,10 @@ export function TransactionDialog({
   );
   const [isCustomCategory, setIsCustomCategory] = useState(false);
   const [customCategoryInput, setCustomCategoryInput] = useState("");
-  const [formattedAmount, setFormattedAmount] = useState("0");
   const [dateTimeInput, setDateTimeInput] = useState(() =>
     toLocalDatetimeString(),
   );
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const amountInputRef = useRef<HTMLInputElement>(null);
   const prevOpenRef = useRef(false);
 
   const {
@@ -112,7 +113,12 @@ export function TransactionDialog({
     resolver: zodResolver(transactionSchema),
     defaultValues: {
       type: transaction?.type ?? defaultType,
+      currency: transaction?.currency ?? baseCurrency,
       amount: transaction ? Number(transaction.amount) : 0,
+      toAmount: transaction?.toAmount ? Number(transaction.toAmount) : null,
+      exchangeRate: transaction?.exchangeRate
+        ? Number(transaction.exchangeRate)
+        : null,
       title: transaction?.title ?? "",
       paymentMethodId: transaction?.paymentMethodId ?? "",
       toPaymentMethodId: transaction?.toPaymentMethodId ?? "",
@@ -132,15 +138,28 @@ export function TransactionDialog({
   const currentCategory = watch("category");
   const currentWalletId = watch("paymentMethodId");
   const currentToWalletId = watch("toPaymentMethodId");
+  const currentAmount = watch("amount");
+  const currentToAmount = watch("toAmount");
+
+  const sourceWallet = wallets.find((w) => w.id === currentWalletId);
+  const destWallet = wallets.find((w) => w.id === currentToWalletId);
+
+  const sourceCurrency = sourceWallet?.currency || baseCurrency;
+  const destCurrency = destWallet?.currency || baseCurrency;
+  const isCrossCurrency =
+    currentType === "transfer" &&
+    Boolean(destWallet) &&
+    destCurrency !== sourceCurrency;
 
   useEffect(() => {
     register("amount");
+    register("toAmount");
+    register("currency");
     register("category");
     register("paymentMethodId");
     register("toPaymentMethodId");
   }, [register]);
 
-  // Initialize and reset dialog state when opening or transaction changes
   useEffect(() => {
     if (open && (!prevOpenRef.current || transaction?.id)) {
       setSubmitError(null);
@@ -148,9 +167,9 @@ export function TransactionDialog({
 
       const initialType = transaction?.type ?? defaultType;
       const initialAmount = transaction ? Number(transaction.amount) : 0;
-      setFormattedAmount(
-        initialAmount > 0 ? formatCurrency(initialAmount) : "0",
-      );
+      const initialToAmount = transaction?.toAmount
+        ? Number(transaction.toAmount)
+        : null;
 
       const txDate = transaction?.date
         ? new Date(transaction.date)
@@ -168,75 +187,118 @@ export function TransactionDialog({
       setIsCustomCategory(false);
       setCustomCategoryInput("");
 
+      fetchPaymentMethodsWithCache().then((cachedWallets) => {
+        setWallets(cachedWallets);
+        let defaultWalletId = transaction?.paymentMethodId ?? "";
+        if (!defaultWalletId && cachedWallets.length > 0) {
+          defaultWalletId = cachedWallets[0].id;
+        }
+
+        let defaultToWalletId = transaction?.toPaymentMethodId ?? "";
+        if (
+          initialType === "transfer" &&
+          !defaultToWalletId &&
+          cachedWallets.length > 1
+        ) {
+          const other = cachedWallets.find((w) => w.id !== defaultWalletId);
+          defaultToWalletId = other ? other.id : "";
+        }
+
+        const selectedSource = cachedWallets.find(
+          (w) => w.id === defaultWalletId,
+        );
+
+        reset({
+          type: initialType,
+          currency:
+            transaction?.currency ?? selectedSource?.currency ?? baseCurrency,
+          amount: initialAmount,
+          toAmount: initialToAmount,
+          title: transaction?.title ?? "",
+          paymentMethodId: defaultWalletId,
+          toPaymentMethodId: defaultToWalletId,
+          category: initialCat,
+          description: transaction?.description ?? "",
+          date: txDate,
+        });
+      });
+
       if (initialType === "transfer") {
         setCategories(["Transfer"]);
       } else {
-        setCategories(getCachedCategoriesSync(initialType));
+        fetchCategoriesWithCache(initialType).then((cachedCats) => {
+          setCategories(cachedCats);
+          if (!cachedCats.includes(initialCat) && initialCat !== "Transfer") {
+            setIsCustomCategory(true);
+            setCustomCategoryInput(initialCat);
+          }
+        });
       }
-
-      reset({
-        type: initialType,
-        amount: initialAmount,
-        title: transaction?.title ?? "",
-        paymentMethodId: transaction?.paymentMethodId ?? "",
-        toPaymentMethodId: transaction?.toPaymentMethodId ?? "",
-        category: initialCat,
-        description: transaction?.description ?? "",
-        date: txDate,
-      });
-
-      // Load wallets and prefetch categories with cache
-      fetchPaymentMethodsWithCache().then((fetched) => {
-        setWallets(fetched);
-        if (fetched.length > 0 && !getValues("paymentMethodId")) {
-          setValue("paymentMethodId", fetched[0].id, { shouldValidate: true });
-        }
-      });
-      fetchCategoriesWithCache("expense");
-      fetchCategoriesWithCache("income");
     }
     prevOpenRef.current = open;
-  }, [open, transaction, defaultType, reset, clearErrors, setValue, getValues]);
+  }, [open, transaction, defaultType, reset, clearErrors, baseCurrency]);
 
-  // Load categories with cache when dialog is open and type changes
-  useEffect(() => {
-    if (!open || currentType === "transfer") return;
+  const onSubmit = async (values: TransactionFormValues) => {
+    setSubmitError(null);
+    try {
+      const selectedSource = wallets.find(
+        (w) => w.id === values.paymentMethodId,
+      );
+      const effectiveCurrency = selectedSource?.currency || baseCurrency;
 
-    let mounted = true;
-    fetchCategoriesWithCache(currentType).then((fetchedCategories) => {
-      if (!mounted) return;
-      setCategories(fetchedCategories);
+      const payload: TransactionFormValues = {
+        ...values,
+        currency: effectiveCurrency,
+      };
 
-      if (fetchedCategories.length > 0) {
-        const current = getValues("category");
-        if (!current || !fetchedCategories.some((c) => c === current)) {
-          setValue("category", fetchedCategories[0], {
-            shouldValidate: true,
-          });
+      if (payload.type === "transfer" && payload.toPaymentMethodId) {
+        const dest = wallets.find((w) => w.id === payload.toPaymentMethodId);
+        if (dest && dest.currency !== effectiveCurrency) {
+          const toAmt =
+            payload.toAmount ??
+            convert(payload.amount, effectiveCurrency, dest.currency);
+          payload.toAmount = toAmt;
+          payload.exchangeRate = toAmt / payload.amount;
+        } else {
+          payload.toAmount = payload.amount;
+          payload.exchangeRate = 1;
         }
       }
-    });
 
-    return () => {
-      mounted = false;
-    };
-  }, [open, currentType, setValue, getValues]);
+      if (isEditing && transaction) {
+        const res = await updateTransaction(transaction.id, payload);
+        if (res.error) {
+          setSubmitError(res.error);
+          return;
+        }
+      } else {
+        const res = await createTransaction(payload);
+        if (res.error) {
+          setSubmitError(res.error);
+          return;
+        }
+      }
+
+      invalidatePaymentMethodsCache();
+      invalidateCategoriesCache();
+      onSuccess?.();
+      onOpenChange(false);
+    } catch (err) {
+      setSubmitError(
+        err instanceof Error ? err.message : "An unexpected error occurred",
+      );
+    }
+  };
 
   const handleTypeChange = (newType: "expense" | "income" | "transfer") => {
-    setValue("type", newType, { shouldValidate: false });
+    setValue("type", newType, { shouldValidate: true, shouldDirty: true });
     setIsCustomCategory(false);
     setCustomCategoryInput("");
-    clearErrors("category");
-    clearErrors("toPaymentMethodId");
 
     if (newType === "transfer") {
       setValue("category", "Transfer", { shouldValidate: true });
-      setValue("title", getValues("title") || "Wallet Transfer", {
-        shouldValidate: false,
-      });
-      // Pick second wallet as destination if available
-      const srcId = getValues("paymentMethodId");
-      const otherWallet = wallets.find((w) => w.id !== srcId);
+      const currentSource = getValues("paymentMethodId");
+      const otherWallet = wallets.find((w) => w.id !== currentSource);
       if (otherWallet) {
         setValue("toPaymentMethodId", otherWallet.id, {
           shouldValidate: true,
@@ -251,36 +313,15 @@ export function TransactionDialog({
     }
   };
 
-  const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const input = e.target;
-    const cursor = input.selectionStart ?? 0;
-    const oldVal = input.value;
-    const digitsBeforeCursor = oldVal
-      .slice(0, cursor)
-      .replace(/\D/g, "").length;
-    const formatted = formatCurrency(oldVal);
-
-    setFormattedAmount(formatted);
-    const rawDigits = oldVal.replace(/\D/g, "");
-    setValue("amount", rawDigits ? Number(rawDigits) : 0, {
-      shouldValidate: true,
-      shouldDirty: true,
-    });
-
-    requestAnimationFrame(() => {
-      if (!amountInputRef.current) return;
-      let newCursor = 0;
-      let digitsCount = 0;
-      for (let i = 0; i < formatted.length; i++) {
-        if (digitsCount >= digitsBeforeCursor) {
-          newCursor = i;
-          break;
-        }
-        if (/\d/.test(formatted[i])) digitsCount++;
-        newCursor = i + 1;
-      }
-      amountInputRef.current.setSelectionRange(newCursor, newCursor);
-    });
+  const handleAmountChange = (val: number) => {
+    setValue("amount", val, { shouldValidate: true, shouldDirty: true });
+    if (isCrossCurrency && destWallet) {
+      const converted = convert(val, sourceCurrency, destCurrency);
+      setValue("toAmount", converted, {
+        shouldValidate: true,
+        shouldDirty: true,
+      });
+    }
   };
 
   const handleCategorySelect = (cat: string) => {
@@ -299,135 +340,138 @@ export function TransactionDialog({
   const handleCustomCategoryChange = (
     e: React.ChangeEvent<HTMLInputElement>,
   ) => {
-    const val = e.target.value;
-    setCustomCategoryInput(val);
-    setValue("category", val.trim(), {
+    const text = e.target.value;
+    setCustomCategoryInput(text);
+    setValue("category", text.trim(), {
       shouldValidate: true,
       shouldDirty: true,
     });
   };
 
-  const onFormSubmit = async (values: TransactionFormValues) => {
-    setSubmitError(null);
-    try {
-      const res =
-        isEditing && transaction
-          ? await updateTransaction(transaction.id, values)
-          : await createTransaction(values);
-
-      if (res.error) {
-        setSubmitError(res.error);
-        return;
-      }
-
-      invalidatePaymentMethodsCache();
-      if (isCustomCategory) {
-        invalidateCategoriesCache(
-          values.type === "transfer" ? undefined : values.type,
-        );
-      }
-
-      onOpenChange(false);
-      onSuccess?.();
-    } catch (err) {
-      setSubmitError(
-        err instanceof Error ? err.message : "Failed to save transaction",
-      );
-    }
-  };
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-md">
-        <DialogHeader className="pb-1">
-          <DialogTitle className="text-base sm:text-lg">
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>
             {isEditing ? "Edit Transaction" : "Record Transaction"}
           </DialogTitle>
-          <DialogDescription className="text-xs">
+          <DialogDescription>
             {isEditing
-              ? "Update transaction details and wallet balances will be updated automatically."
-              : "Log your income, expense, or wallet transfer to keep your balances accurate."}
+              ? "Modify transaction details and adjust wallet balances."
+              : "Track a new expense, income, or transfer between wallets."}
           </DialogDescription>
         </DialogHeader>
 
-        {/* 3-Way Type Switcher: Expense | Income | Wallet Transfer */}
-        <div className="grid grid-cols-3 gap-1 rounded-lg border bg-muted/40 p-1">
-          <button
-            type="button"
-            disabled={isSubmitting}
-            onClick={() => handleTypeChange("expense")}
-            className={cn(
-              "flex h-8 items-center justify-center gap-1.5 rounded-md text-xs font-medium transition-all",
-              currentType === "expense"
-                ? "bg-destructive text-destructive-foreground shadow-xs font-semibold"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            <ArrowDownLeft className="size-3.5" />
-            <span>Expense</span>
-          </button>
-          <button
-            type="button"
-            disabled={isSubmitting}
-            onClick={() => handleTypeChange("income")}
-            className={cn(
-              "flex h-8 items-center justify-center gap-1.5 rounded-md text-xs font-medium transition-all",
-              currentType === "income"
-                ? "bg-emerald-600 text-white shadow-xs font-semibold"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            <ArrowUpRight className="size-3.5" />
-            <span>Income</span>
-          </button>
-          <button
-            type="button"
-            disabled={isSubmitting}
-            onClick={() => handleTypeChange("transfer")}
-            className={cn(
-              "flex h-8 items-center justify-center gap-1.5 rounded-md text-xs font-medium transition-all",
-              currentType === "transfer"
-                ? "bg-primary text-primary-foreground shadow-xs font-semibold"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            <ArrowLeftRight className="size-3.5" />
-            <span>Transfer</span>
-          </button>
-        </div>
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 pt-1">
+          {/* Type Selector Tabs */}
+          <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted p-1 text-xs">
+            <button
+              type="button"
+              onClick={() => handleTypeChange("expense")}
+              className={cn(
+                "flex items-center justify-center gap-1.5 rounded-md py-1.5 font-medium transition-colors",
+                currentType === "expense"
+                  ? "bg-background text-destructive shadow-2xs"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <ArrowDownLeft className="size-3.5" />
+              <span>Expense</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleTypeChange("income")}
+              className={cn(
+                "flex items-center justify-center gap-1.5 rounded-md py-1.5 font-medium transition-colors",
+                currentType === "income"
+                  ? "bg-background text-emerald-600 shadow-2xs"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <ArrowUpRight className="size-3.5" />
+              <span>Income</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleTypeChange("transfer")}
+              className={cn(
+                "flex items-center justify-center gap-1.5 rounded-md py-1.5 font-medium transition-colors",
+                currentType === "transfer"
+                  ? "bg-background text-primary shadow-2xs"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <ArrowLeftRight className="size-3.5" />
+              <span>Transfer</span>
+            </button>
+          </div>
 
-        <form onSubmit={handleSubmit(onFormSubmit)} className="space-y-3.5">
           {/* Amount Input */}
           <div className="space-y-1.5">
-            <Label htmlFor="tx-amount" className="text-xs font-medium">
-              Amount
-            </Label>
-            <div className="relative">
-              <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                <span className="select-none text-xs font-semibold text-muted-foreground">
-                  Rp
-                </span>
-              </div>
-              <Input
-                ref={amountInputRef}
-                id="tx-amount"
-                type="text"
-                inputMode="numeric"
-                placeholder="0"
-                value={formattedAmount}
-                onChange={handleAmountChange}
-                disabled={isSubmitting}
-                autoFocus
-                className="pl-9 font-medium tabular-nums text-sm"
-                aria-invalid={Boolean(errors.amount)}
-              />
+            <div className="flex items-center justify-between">
+              <Label htmlFor="tx-amount" className="text-xs font-medium">
+                Amount
+              </Label>
+              <span className="text-[11px] text-muted-foreground">
+                Wallet Currency: <strong>{sourceCurrency}</strong>
+              </span>
             </div>
+            <CurrencyInput
+              id="tx-amount"
+              value={Number(currentAmount) || 0}
+              currencyCode={sourceCurrency}
+              onChange={handleAmountChange}
+              disabled={isSubmitting}
+              autoFocus
+              aria-invalid={Boolean(errors.amount)}
+            />
             {errors.amount && (
               <p className="text-[11px] text-destructive">
                 {errors.amount.message}
               </p>
             )}
           </div>
+
+          {/* Cross-Currency Transfer Received Amount */}
+          {isCrossCurrency && destWallet && (
+            <div className="space-y-1.5 rounded-lg border border-border/70 bg-muted/30 p-2.5">
+              <div className="flex items-center justify-between text-xs">
+                <Label
+                  htmlFor="tx-to-amount"
+                  className="font-medium text-foreground"
+                >
+                  Received in {destWallet.name} ({destCurrency})
+                </Label>
+                <span className="text-[11px] text-muted-foreground">
+                  FX Conversion
+                </span>
+              </div>
+              <CurrencyInput
+                id="tx-to-amount"
+                value={
+                  currentToAmount !== null && currentToAmount !== undefined
+                    ? Number(currentToAmount)
+                    : convert(
+                        Number(currentAmount) || 0,
+                        sourceCurrency,
+                        destCurrency,
+                      )
+                }
+                currencyCode={destCurrency}
+                onChange={(val) =>
+                  setValue("toAmount", val, {
+                    shouldValidate: true,
+                    shouldDirty: true,
+                  })
+                }
+                disabled={isSubmitting}
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Auto-converted using reference rates. Adjust if your bank
+                charged a different fee.
+              </p>
+            </div>
+          )}
 
           {/* Title Input */}
           <div className="space-y-1.5">
@@ -476,7 +520,7 @@ export function TransactionDialog({
                   items={wallets}
                   itemToStringLabel={(w: PaymentMethod) =>
                     w
-                      ? `${w.name} (${w.type}) — ${formatRupiah(w.balance)}`
+                      ? `${w.name} (${w.type}) : ${format(w.balance, w.currency || baseCurrency)}`
                       : ""
                   }
                   itemToStringValue={(w: PaymentMethod) =>
@@ -513,7 +557,7 @@ export function TransactionDialog({
                               </span>
                             </span>
                             <span className="text-[11px] tabular-nums text-muted-foreground">
-                              {formatRupiah(w.balance)}
+                              {format(w.balance, w.currency || baseCurrency)}
                             </span>
                           </div>
                         </ComboboxItem>
@@ -537,7 +581,7 @@ export function TransactionDialog({
                   items={wallets.filter((w) => w.id !== currentWalletId)}
                   itemToStringLabel={(w: PaymentMethod) =>
                     w
-                      ? `${w.name} (${w.type}) — ${formatRupiah(w.balance)}`
+                      ? `${w.name} (${w.type}) : ${format(w.balance, w.currency || baseCurrency)}`
                       : ""
                   }
                   itemToStringValue={(w: PaymentMethod) =>
@@ -564,7 +608,7 @@ export function TransactionDialog({
                     aria-invalid={Boolean(errors.toPaymentMethodId)}
                   />
                   <ComboboxContent className="z-50">
-                    <ComboboxEmpty>No destination wallet found.</ComboboxEmpty>
+                    <ComboboxEmpty>No wallet found.</ComboboxEmpty>
                     <ComboboxList>
                       {(w: PaymentMethod) => (
                         <ComboboxItem key={w.id} value={w} className="text-xs">
@@ -576,7 +620,7 @@ export function TransactionDialog({
                               </span>
                             </span>
                             <span className="text-[11px] tabular-nums text-muted-foreground">
-                              {formatRupiah(w.balance)}
+                              {format(w.balance, w.currency || baseCurrency)}
                             </span>
                           </div>
                         </ComboboxItem>
@@ -592,7 +636,7 @@ export function TransactionDialog({
               </div>
             </div>
           ) : (
-            /* Single Wallet Selector for Expense & Income */
+            /* Single Wallet Selector */
             <div className="space-y-1.5">
               <Label htmlFor="tx-wallet" className="text-xs font-medium">
                 Wallet / Payment Method
@@ -600,7 +644,9 @@ export function TransactionDialog({
               <Combobox
                 items={wallets}
                 itemToStringLabel={(w: PaymentMethod) =>
-                  w ? `${w.name} (${w.type}) — ${formatRupiah(w.balance)}` : ""
+                  w
+                    ? `${w.name} (${w.type}) : ${format(w.balance, w.currency || baseCurrency)}`
+                    : ""
                 }
                 itemToStringValue={(w: PaymentMethod) =>
                   w ? `${w.name} ${w.type}` : ""
@@ -636,7 +682,7 @@ export function TransactionDialog({
                             </span>
                           </span>
                           <span className="text-[11px] tabular-nums text-muted-foreground">
-                            {formatRupiah(w.balance)}
+                            {format(w.balance, w.currency || baseCurrency)}
                           </span>
                         </div>
                       </ComboboxItem>
@@ -652,7 +698,7 @@ export function TransactionDialog({
             </div>
           )}
 
-          {/* Category Selector (Hidden on Transfer, since Category is auto "Transfer") */}
+          {/* Category Selector */}
           {currentType !== "transfer" && (
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
@@ -671,7 +717,7 @@ export function TransactionDialog({
               {isCustomCategory ? (
                 <div className="space-y-1">
                   <Input
-                    placeholder="Enter new category name (e.g. Subscriptions)..."
+                    placeholder="Enter new category name..."
                     value={customCategoryInput}
                     onChange={handleCustomCategoryChange}
                     disabled={isSubmitting}

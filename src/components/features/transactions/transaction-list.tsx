@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState, useTransition } from "react";
 
+import { useCurrency } from "@/components/providers/currency-provider";
 import { Button } from "@/components/ui/button";
 import {
   type DateRange,
@@ -31,7 +32,6 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import type { PaymentMethod } from "@/lib/db/schemas";
-import { formatCurrency, formatRupiah } from "@/lib/utils";
 import { invalidatePaymentMethodsCache } from "@/services/features/payments";
 import {
   deleteTransaction,
@@ -65,6 +65,7 @@ export function TransactionList({
   wallets = [],
   categories = [],
 }: TransactionListProps) {
+  const { baseCurrency, format, convert } = useCurrency();
   const [items, setItems] =
     useState<TransactionWithPaymentMethod[]>(initialData);
   const [summary, setSummary] = useState<TransactionSummary>(initialSummary);
@@ -231,7 +232,7 @@ export function TransactionList({
             </div>
           </div>
           <p className="mt-2 text-lg font-bold tabular-nums text-emerald-600">
-            + Rp {formatCurrency(summary.totalIncome)}
+            +{format(summary.totalIncome, baseCurrency)}
           </p>
         </div>
 
@@ -245,7 +246,7 @@ export function TransactionList({
             </div>
           </div>
           <p className="mt-2 text-lg font-bold tabular-nums text-destructive">
-            - Rp {formatCurrency(summary.totalExpense)}
+            -{format(summary.totalExpense, baseCurrency)}
           </p>
         </div>
 
@@ -259,7 +260,7 @@ export function TransactionList({
             </div>
           </div>
           <p className="mt-2 text-lg font-bold tabular-nums">
-            {formatRupiah(summary.netBalance)}
+            {format(summary.netBalance, baseCurrency)}
           </p>
         </div>
       </div>
@@ -616,7 +617,7 @@ export function TransactionList({
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <div className="text-right">
+                  <div className="text-right flex flex-col items-end">
                     <span
                       className={cn(
                         "text-xs font-semibold tabular-nums",
@@ -627,8 +628,30 @@ export function TransactionList({
                     >
                       {isExpense && "- "}
                       {isIncome && "+ "}
-                      {formatRupiah(tx.amount)}
+                      {format(
+                        tx.amount,
+                        tx.currency ||
+                          tx.paymentMethod?.currency ||
+                          baseCurrency,
+                      )}
                     </span>
+                    {(tx.currency || tx.paymentMethod?.currency) &&
+                      (tx.currency || tx.paymentMethod?.currency) !==
+                        baseCurrency && (
+                        <span className="text-[10px] text-muted-foreground tabular-nums">
+                          ≈{" "}
+                          {format(
+                            convert(
+                              Number(tx.amount) || 0,
+                              tx.currency ||
+                                tx.paymentMethod?.currency ||
+                                baseCurrency,
+                              baseCurrency,
+                            ),
+                            baseCurrency,
+                          )}
+                        </span>
+                      )}
                   </div>
 
                   {/* Edit button */}

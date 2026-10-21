@@ -1,20 +1,36 @@
 "use server";
 
-import { and, desc, eq, gte, ilike, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, ilike, lte, or } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { revalidatePath } from "next/cache";
 
 import { getSessionUser, requireAuthUser } from "@/lib/auth";
+import { getCurrencyConfig } from "@/lib/currency";
 import { db } from "@/lib/db";
 import type { Transaction } from "@/lib/db/schemas";
 import { categories, paymentMethods, transactions } from "@/lib/db/schemas";
+import { convertAmountSync, getExchangeRates } from "@/lib/exchange-rates";
 import { ensureCustomCategory } from "@/services/features/categories";
+import { getUserSettings } from "@/services/features/settings";
 
 import { type TransactionFormValues, transactionSchema } from "./schema";
 import type {
   GetTransactionsFilter,
   TransactionWithPaymentMethod,
 } from "./types";
+
+function safeAdjustBalance(
+  currentBalance: number,
+  delta: number,
+  currency: string,
+): string {
+  const config = getCurrencyConfig(currency);
+  const next = currentBalance + delta;
+  if (config.decimals === 0) {
+    return String(Math.round(next));
+  }
+  return String(Math.round(next * 100) / 100);
+}
 
 export async function getTransactions(
   filter?: GetTransactionsFilter,
@@ -64,7 +80,10 @@ export async function getTransactions(
       paymentMethodId: transactions.paymentMethodId,
       toPaymentMethodId: transactions.toPaymentMethodId,
       type: transactions.type,
+      currency: transactions.currency,
       amount: transactions.amount,
+      toAmount: transactions.toAmount,
+      exchangeRate: transactions.exchangeRate,
       title: transactions.title,
       category: transactions.category,
       description: transactions.description,
@@ -75,11 +94,13 @@ export async function getTransactions(
         id: paymentMethods.id,
         name: paymentMethods.name,
         type: paymentMethods.type,
+        currency: paymentMethods.currency,
       },
       toPaymentMethod: {
         id: toPaymentMethods.id,
         name: toPaymentMethods.name,
         type: toPaymentMethods.type,
+        currency: toPaymentMethods.currency,
       },
     })
     .from(transactions)
@@ -116,6 +137,8 @@ export async function createTransaction(
   const {
     type,
     amount,
+    toAmount,
+    exchangeRate,
     paymentMethodId,
     toPaymentMethodId,
     title,
@@ -124,7 +147,6 @@ export async function createTransaction(
     date,
   } = parsed.data;
 
-  // atomic update via db.transaction; upgrade to row-locking if high concurrency
   const result = await db.transaction(async (tx) => {
     const [sourceWallet] = await tx
       .select()
@@ -139,6 +161,10 @@ export async function createTransaction(
     if (!sourceWallet) {
       return { error: "Source payment method not found" };
     }
+
+    const txCurrency = sourceWallet.currency || "IDR";
+    let finalToAmount = toAmount ?? null;
+    let finalExchangeRate = exchangeRate ?? null;
 
     if (type === "transfer") {
       if (!toPaymentMethodId) {
@@ -158,26 +184,49 @@ export async function createTransaction(
         return { error: "Destination payment method not found" };
       }
 
+      const destCurrency = destWallet.currency || "IDR";
+
+      if (destCurrency === txCurrency) {
+        finalToAmount = amount;
+        finalExchangeRate = 1;
+      } else if (!finalToAmount) {
+        const rates = await getExchangeRates();
+        finalToAmount = convertAmountSync(
+          amount,
+          txCurrency,
+          destCurrency,
+          rates,
+        );
+        finalExchangeRate = finalToAmount / amount;
+      } else if (!finalExchangeRate) {
+        finalExchangeRate = finalToAmount / amount;
+      }
+
       const sourceBal = Number(sourceWallet.balance) || 0;
       const destBal = Number(destWallet.balance) || 0;
 
       await tx
         .update(paymentMethods)
-        .set({ balance: String(sourceBal - amount) })
+        .set({
+          balance: safeAdjustBalance(sourceBal, -amount, txCurrency),
+        })
         .where(eq(paymentMethods.id, sourceWallet.id));
 
       await tx
         .update(paymentMethods)
-        .set({ balance: String(destBal + amount) })
+        .set({
+          balance: safeAdjustBalance(destBal, finalToAmount, destCurrency),
+        })
         .where(eq(paymentMethods.id, destWallet.id));
     } else {
       const currentBalance = Number(sourceWallet.balance) || 0;
-      const newBalance =
-        type === "income" ? currentBalance + amount : currentBalance - amount;
+      const delta = type === "income" ? amount : -amount;
 
       await tx
         .update(paymentMethods)
-        .set({ balance: String(newBalance) })
+        .set({
+          balance: safeAdjustBalance(currentBalance, delta, txCurrency),
+        })
         .where(eq(paymentMethods.id, sourceWallet.id));
     }
 
@@ -194,7 +243,11 @@ export async function createTransaction(
         paymentMethodId,
         toPaymentMethodId: type === "transfer" ? toPaymentMethodId : null,
         type,
+        currency: txCurrency,
         amount: String(amount),
+        toAmount: finalToAmount !== null ? String(finalToAmount) : null,
+        exchangeRate:
+          finalExchangeRate !== null ? String(finalExchangeRate) : null,
         title: finalTitle,
         category: finalCategory,
         description: description || null,
@@ -233,6 +286,8 @@ export async function updateTransaction(
   const {
     type,
     amount,
+    toAmount,
+    exchangeRate,
     paymentMethodId,
     toPaymentMethodId,
     title,
@@ -251,8 +306,9 @@ export async function updateTransaction(
       return { error: "Transaction not found" };
     }
 
-    // Step 1: Revert effects of existing transaction
+    // Revert existing transaction balances
     const oldAmount = Number(existing.amount) || 0;
+
     if (existing.type === "transfer") {
       const [oldSrc] = await tx
         .select()
@@ -267,7 +323,13 @@ export async function updateTransaction(
         const bal = Number(oldSrc.balance) || 0;
         await tx
           .update(paymentMethods)
-          .set({ balance: String(bal + oldAmount) })
+          .set({
+            balance: safeAdjustBalance(
+              bal,
+              oldAmount,
+              oldSrc.currency || "IDR",
+            ),
+          })
           .where(eq(paymentMethods.id, oldSrc.id));
       }
 
@@ -283,9 +345,18 @@ export async function updateTransaction(
           );
         if (oldDest) {
           const bal = Number(oldDest.balance) || 0;
+          const oldDestAmt = existing.toAmount
+            ? Number(existing.toAmount)
+            : oldAmount;
           await tx
             .update(paymentMethods)
-            .set({ balance: String(bal - oldAmount) })
+            .set({
+              balance: safeAdjustBalance(
+                bal,
+                -oldDestAmt,
+                oldDest.currency || "IDR",
+              ),
+            })
             .where(eq(paymentMethods.id, oldDest.id));
         }
       }
@@ -301,16 +372,21 @@ export async function updateTransaction(
         );
       if (oldWallet) {
         const bal = Number(oldWallet.balance) || 0;
-        const revertedBal =
-          existing.type === "income" ? bal - oldAmount : bal + oldAmount;
+        const revertDelta = existing.type === "income" ? -oldAmount : oldAmount;
         await tx
           .update(paymentMethods)
-          .set({ balance: String(revertedBal) })
+          .set({
+            balance: safeAdjustBalance(
+              bal,
+              revertDelta,
+              oldWallet.currency || "IDR",
+            ),
+          })
           .where(eq(paymentMethods.id, oldWallet.id));
       }
     }
 
-    // Step 2: Apply effects of updated transaction
+    // Apply updated transaction balances
     const [newSrc] = await tx
       .select()
       .from(paymentMethods)
@@ -324,6 +400,10 @@ export async function updateTransaction(
     if (!newSrc) {
       return { error: "Source payment method not found" };
     }
+
+    const txCurrency = newSrc.currency || "IDR";
+    let finalToAmount = toAmount ?? null;
+    let finalExchangeRate = exchangeRate ?? null;
 
     if (type === "transfer") {
       if (!toPaymentMethodId) {
@@ -343,25 +423,49 @@ export async function updateTransaction(
         return { error: "Destination payment method not found" };
       }
 
+      const destCurrency = newDest.currency || "IDR";
+
+      if (destCurrency === txCurrency) {
+        finalToAmount = amount;
+        finalExchangeRate = 1;
+      } else if (!finalToAmount) {
+        const rates = await getExchangeRates();
+        finalToAmount = convertAmountSync(
+          amount,
+          txCurrency,
+          destCurrency,
+          rates,
+        );
+        finalExchangeRate = finalToAmount / amount;
+      } else if (!finalExchangeRate) {
+        finalExchangeRate = finalToAmount / amount;
+      }
+
       const srcBal = Number(newSrc.balance) || 0;
       const destBal = Number(newDest.balance) || 0;
 
       await tx
         .update(paymentMethods)
-        .set({ balance: String(srcBal - amount) })
+        .set({
+          balance: safeAdjustBalance(srcBal, -amount, txCurrency),
+        })
         .where(eq(paymentMethods.id, newSrc.id));
 
       await tx
         .update(paymentMethods)
-        .set({ balance: String(destBal + amount) })
+        .set({
+          balance: safeAdjustBalance(destBal, finalToAmount, destCurrency),
+        })
         .where(eq(paymentMethods.id, newDest.id));
     } else {
       const curBal = Number(newSrc.balance) || 0;
-      const nextBal = type === "income" ? curBal + amount : curBal - amount;
+      const delta = type === "income" ? amount : -amount;
 
       await tx
         .update(paymentMethods)
-        .set({ balance: String(nextBal) })
+        .set({
+          balance: safeAdjustBalance(curBal, delta, txCurrency),
+        })
         .where(eq(paymentMethods.id, newSrc.id));
     }
 
@@ -376,13 +480,17 @@ export async function updateTransaction(
         paymentMethodId,
         toPaymentMethodId: type === "transfer" ? toPaymentMethodId : null,
         type,
+        currency: txCurrency,
         amount: String(amount),
+        toAmount: finalToAmount !== null ? String(finalToAmount) : null,
+        exchangeRate:
+          finalExchangeRate !== null ? String(finalExchangeRate) : null,
         title: finalTitle,
         category: finalCategory,
         description: description || null,
         date,
       })
-      .where(eq(transactions.id, existing.id))
+      .where(eq(transactions.id, id))
       .returning();
 
     return { data: updated };
@@ -433,7 +541,13 @@ export async function deleteTransaction(
         const bal = Number(srcWallet.balance) || 0;
         await tx
           .update(paymentMethods)
-          .set({ balance: String(bal + amount) })
+          .set({
+            balance: safeAdjustBalance(
+              bal,
+              amount,
+              srcWallet.currency || "IDR",
+            ),
+          })
           .where(eq(paymentMethods.id, srcWallet.id));
       }
 
@@ -449,9 +563,18 @@ export async function deleteTransaction(
           );
         if (destWallet) {
           const bal = Number(destWallet.balance) || 0;
+          const destAmt = txRecord.toAmount
+            ? Number(txRecord.toAmount)
+            : amount;
           await tx
             .update(paymentMethods)
-            .set({ balance: String(bal - amount) })
+            .set({
+              balance: safeAdjustBalance(
+                bal,
+                -destAmt,
+                destWallet.currency || "IDR",
+              ),
+            })
             .where(eq(paymentMethods.id, destWallet.id));
         }
       }
@@ -465,23 +588,23 @@ export async function deleteTransaction(
             eq(paymentMethods.userId, user.id),
           ),
         );
-
       if (wallet) {
-        const currentBalance = Number(wallet.balance) || 0;
-        const revertedBalance =
-          txRecord.type === "income"
-            ? currentBalance - amount
-            : currentBalance + amount;
-
+        const currentBal = Number(wallet.balance) || 0;
+        const revertDelta = txRecord.type === "income" ? -amount : amount;
         await tx
           .update(paymentMethods)
-          .set({ balance: String(revertedBalance) })
+          .set({
+            balance: safeAdjustBalance(
+              currentBal,
+              revertDelta,
+              wallet.currency || "IDR",
+            ),
+          })
           .where(eq(paymentMethods.id, wallet.id));
       }
     }
 
-    await tx.delete(transactions).where(eq(transactions.id, txRecord.id));
-
+    await tx.delete(transactions).where(eq(transactions.id, id));
     return { success: true };
   });
 
@@ -514,6 +637,12 @@ export async function getDailyCashFlow(filter?: {
   const user = await getSessionUser();
   if (!user) return { data: [] };
 
+  const [{ data: settings }, rates] = await Promise.all([
+    getUserSettings(),
+    getExchangeRates(),
+  ]);
+  const baseCurrency = settings?.baseCurrency || "IDR";
+
   const baseConditions = [eq(transactions.userId, user.id)];
 
   if (filter?.startDate) {
@@ -527,22 +656,41 @@ export async function getDailyCashFlow(filter?: {
     baseConditions.push(lte(transactions.date, end));
   }
 
-  const rows = await db
+  const txRows = await db
     .select({
-      day: sql<string>`to_char(${transactions.date}, 'YYYY-MM-DD')`,
-      income: sql<string>`coalesce(sum(case when ${transactions.type} = 'income' then ${transactions.amount} else 0 end), 0)`,
-      expense: sql<string>`coalesce(sum(case when ${transactions.type} = 'expense' then ${transactions.amount} else 0 end), 0)`,
+      date: transactions.date,
+      type: transactions.type,
+      amount: transactions.amount,
+      currency: transactions.currency,
     })
     .from(transactions)
     .where(and(...baseConditions))
-    .groupBy(sql`to_char(${transactions.date}, 'YYYY-MM-DD')`)
-    .orderBy(sql`to_char(${transactions.date}, 'YYYY-MM-DD')`);
+    .orderBy(transactions.date);
 
-  const data: DailyCashFlowItem[] = rows.map((r) => ({
-    date: r.day,
-    income: Number(r.income) || 0,
-    expense: Number(r.expense) || 0,
-  }));
+  const dayMap = new Map<string, { income: number; expense: number }>();
+
+  for (const row of txRows) {
+    const day = row.date.toISOString().slice(0, 10);
+    const rawAmt = Number(row.amount) || 0;
+    const txCurr = row.currency || "IDR";
+    const converted = convertAmountSync(rawAmt, txCurr, baseCurrency, rates);
+
+    const existing = dayMap.get(day) ?? { income: 0, expense: 0 };
+    if (row.type === "income") {
+      existing.income += converted;
+    } else if (row.type === "expense") {
+      existing.expense += converted;
+    }
+    dayMap.set(day, existing);
+  }
+
+  const data: DailyCashFlowItem[] = Array.from(dayMap.entries())
+    .map(([date, item]) => ({
+      date,
+      income: item.income,
+      expense: item.expense,
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
 
   return { data };
 }
@@ -554,6 +702,12 @@ export async function getCategoryBreakdown(filter?: {
 }): Promise<{ data: CategoryBreakdownItem[]; total: number }> {
   const user = await getSessionUser();
   if (!user) return { data: [], total: 0 };
+
+  const [{ data: settings }, rates] = await Promise.all([
+    getUserSettings(),
+    getExchangeRates(),
+  ]);
+  const baseCurrency = settings?.baseCurrency || "IDR";
 
   const targetType = filter?.type ?? "expense";
   const baseConditions = [
@@ -572,30 +726,43 @@ export async function getCategoryBreakdown(filter?: {
     baseConditions.push(lte(transactions.date, end));
   }
 
-  const rows = await db
+  const txRows = await db
     .select({
       category: transactions.category,
-      total: sql<string>`coalesce(sum(${transactions.amount}), 0)`,
-      count: sql<number>`count(${transactions.id})`,
+      amount: transactions.amount,
+      currency: transactions.currency,
     })
     .from(transactions)
-    .where(and(...baseConditions))
-    .groupBy(transactions.category)
-    .orderBy(desc(sql`sum(${transactions.amount})`));
+    .where(and(...baseConditions));
 
-  const total = rows.reduce((sum, r) => sum + (Number(r.total) || 0), 0);
+  const categoryMap = new Map<string, { total: number; count: number }>();
+  let overallTotal = 0;
 
-  const data: CategoryBreakdownItem[] = rows.map((r) => {
-    const itemTotal = Number(r.total) || 0;
-    return {
-      category: r.category || "Uncategorized",
-      total: itemTotal,
-      count: Number(r.count) || 0,
-      percentage: total > 0 ? Math.round((itemTotal / total) * 100) : 0,
-    };
-  });
+  for (const row of txRows) {
+    const cat = row.category || "Uncategorized";
+    const rawAmt = Number(row.amount) || 0;
+    const txCurr = row.currency || "IDR";
+    const converted = convertAmountSync(rawAmt, txCurr, baseCurrency, rates);
 
-  return { data, total };
+    overallTotal += converted;
+    const existing = categoryMap.get(cat) ?? { total: 0, count: 0 };
+    categoryMap.set(cat, {
+      total: existing.total + converted,
+      count: existing.count + 1,
+    });
+  }
+
+  const data: CategoryBreakdownItem[] = Array.from(categoryMap.entries())
+    .map(([category, info]) => ({
+      category,
+      total: info.total,
+      count: info.count,
+      percentage:
+        overallTotal > 0 ? Math.round((info.total / overallTotal) * 100) : 0,
+    }))
+    .sort((a, b) => b.total - a.total);
+
+  return { data, total: overallTotal };
 }
 
 export async function getTransactionSummary(filter?: {
@@ -608,6 +775,12 @@ export async function getTransactionSummary(filter?: {
       data: { totalIncome: 0, totalExpense: 0, netBalance: 0 },
     };
   }
+
+  const [{ data: settings }, rates] = await Promise.all([
+    getUserSettings(),
+    getExchangeRates(),
+  ]);
+  const baseCurrency = settings?.baseCurrency || "IDR";
 
   const baseConditions = [eq(transactions.userId, user.id)];
 
@@ -622,18 +795,30 @@ export async function getTransactionSummary(filter?: {
     baseConditions.push(lte(transactions.date, end));
   }
 
-  const [incomeRow] = await db
-    .select({ total: sql<string>`coalesce(sum(${transactions.amount}), 0)` })
+  const txRows = await db
+    .select({
+      type: transactions.type,
+      amount: transactions.amount,
+      currency: transactions.currency,
+    })
     .from(transactions)
-    .where(and(...baseConditions, eq(transactions.type, "income")));
+    .where(and(...baseConditions));
 
-  const [expenseRow] = await db
-    .select({ total: sql<string>`coalesce(sum(${transactions.amount}), 0)` })
-    .from(transactions)
-    .where(and(...baseConditions, eq(transactions.type, "expense")));
+  let totalIncome = 0;
+  let totalExpense = 0;
 
-  const totalIncome = Number(incomeRow?.total) || 0;
-  const totalExpense = Number(expenseRow?.total) || 0;
+  for (const row of txRows) {
+    const rawAmt = Number(row.amount) || 0;
+    const txCurr = row.currency || "IDR";
+    const converted = convertAmountSync(rawAmt, txCurr, baseCurrency, rates);
+
+    if (row.type === "income") {
+      totalIncome += converted;
+    } else if (row.type === "expense") {
+      totalExpense += converted;
+    }
+  }
+
   const netBalance = totalIncome - totalExpense;
 
   return {

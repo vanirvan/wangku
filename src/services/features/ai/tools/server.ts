@@ -137,6 +137,7 @@ export function createAiServerTools(userId: string) {
         id: paymentMethods.id,
         name: paymentMethods.name,
         type: paymentMethods.type,
+        currency: paymentMethods.currency,
         balance: paymentMethods.balance,
       })
       .from(paymentMethods)
@@ -147,7 +148,7 @@ export function createAiServerTools(userId: string) {
   });
 
   const createWallet = createWalletDef.server(
-    async ({ name, type, balance }) => {
+    async ({ name, type, currency, balance }) => {
       const [created] = await db
         .insert(paymentMethods)
         .values({
@@ -155,6 +156,7 @@ export function createAiServerTools(userId: string) {
           userId,
           name,
           type,
+          currency: currency || "IDR",
           balance: String(balance ?? 0),
         })
         .returning();
@@ -172,10 +174,11 @@ export function createAiServerTools(userId: string) {
   );
 
   const updateWallet = updateWalletDef.server(
-    async ({ id, name, type, balance }) => {
+    async ({ id, name, type, currency, balance }) => {
       const updateData: Partial<typeof paymentMethods.$inferInsert> = {};
       if (name !== undefined) updateData.name = name;
       if (type !== undefined) updateData.type = type;
+      if (currency !== undefined) updateData.currency = currency;
       if (balance !== undefined) updateData.balance = String(balance);
 
       if (Object.keys(updateData).length === 0) {
@@ -983,6 +986,7 @@ export function createAiServerTools(userId: string) {
           paymentMethodId,
           toPaymentMethodId: type === "transfer" ? toPaymentMethodId : null,
           type,
+          currency: sourceWallet.currency || "IDR",
           amount: String(amount),
           title: finalTitle,
           category: finalCategory,

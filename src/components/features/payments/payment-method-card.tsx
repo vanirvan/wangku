@@ -7,8 +7,8 @@ import {
 } from "lucide-react";
 import type { ElementType } from "react";
 
+import { formatMoney, getCurrencyConfig } from "@/lib/currency";
 import type { PaymentMethod } from "@/lib/db/schemas";
-import { formatRupiah } from "@/lib/utils";
 import type { PaymentMethodType } from "@/services/features/payments";
 
 export const PAYMENT_TYPE_CONFIG: Record<
@@ -56,8 +56,10 @@ export function PaymentMethodCard({
 
   const config = PAYMENT_TYPE_CONFIG[typeKey];
   const Icon = config.icon;
+  const currencyCode = paymentMethod.currency || "IDR";
+  const currencyConfig = getCurrencyConfig(currencyCode);
 
-  const formattedBalance = formatRupiah(paymentMethod.balance);
+  const formattedBalance = formatMoney(paymentMethod.balance, currencyCode);
 
   const nameId = `wallet-name-${paymentMethod.id}`;
   const balanceId = `wallet-bal-${paymentMethod.id}`;
@@ -93,9 +95,15 @@ export function PaymentMethodCard({
             >
               {paymentMethod.name}
             </p>
-            <span className="inline-flex items-center rounded-full border border-border/80 bg-muted/40 px-2 py-0.5 font-medium text-[11px] text-muted-foreground">
-              {config.label}
-            </span>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="inline-flex items-center rounded-full border border-border/80 bg-muted/40 px-2 py-0.5 font-medium text-[11px] text-muted-foreground">
+                {config.label}
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-full border border-border/80 bg-muted/40 px-2 py-0.5 font-medium text-[11px] text-muted-foreground">
+                <span>{currencyConfig.flag}</span>
+                <span>{currencyCode}</span>
+              </span>
+            </div>
           </div>
         </div>
       </div>

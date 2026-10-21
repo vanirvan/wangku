@@ -15,6 +15,11 @@ export const createWalletDef = toolDefinition({
   inputSchema: z.object({
     name: z.string().trim().min(1, "Name is required").max(50),
     type: z.enum(["cash", "bank", "ewallet", "card", "other"]),
+    currency: z
+      .string()
+      .optional()
+      .default("IDR")
+      .describe("Currency code (e.g. IDR, USD, EUR)"),
     balance: z.number().min(0, "Balance cannot be negative").default(0),
   }),
 });
@@ -27,6 +32,10 @@ export const updateWalletDef = toolDefinition({
     id: z.string().min(1, "Wallet ID is required"),
     name: z.string().trim().min(1).max(50).optional(),
     type: z.enum(["cash", "bank", "ewallet", "card", "other"]).optional(),
+    currency: z
+      .string()
+      .optional()
+      .describe("Currency code (e.g. IDR, USD, EUR)"),
     balance: z.number().min(0, "Balance cannot be negative").optional(),
   }),
 });

@@ -13,6 +13,7 @@ export const paymentMethods = pgTable(
     type: text("type", { enum: ["cash", "bank", "ewallet", "card", "other"] })
       .default("cash")
       .notNull(),
+    currency: text("currency").default("IDR").notNull(),
     balance: numeric("balance", { precision: 14, scale: 2 })
       .default("0")
       .notNull(),

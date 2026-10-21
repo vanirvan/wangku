@@ -47,11 +47,13 @@ export async function createPaymentMethod(
       userId: user.id,
       name: parsed.data.name,
       type: parsed.data.type,
+      currency: parsed.data.currency || "IDR",
       balance: String(parsed.data.balance),
     })
     .returning();
 
   revalidatePath("/payments");
+  revalidatePath("/");
   return { data: created };
 }
 
@@ -72,6 +74,7 @@ export async function updatePaymentMethod(
     .set({
       name: parsed.data.name,
       type: parsed.data.type,
+      currency: parsed.data.currency || "IDR",
       balance: String(parsed.data.balance),
     })
     .where(and(eq(paymentMethods.id, id), eq(paymentMethods.userId, user.id)))
@@ -80,6 +83,7 @@ export async function updatePaymentMethod(
   if (!updated) return { error: "Payment method not found" };
 
   revalidatePath("/payments");
+  revalidatePath("/");
   return { data: updated };
 }
 
@@ -97,5 +101,6 @@ export async function deletePaymentMethod(
   if (!deleted) return { error: "Payment method not found" };
 
   revalidatePath("/payments");
+  revalidatePath("/");
   return { success: true };
 }

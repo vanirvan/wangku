@@ -1,5 +1,6 @@
 import {
   AiConfigSection,
+  CurrencySection,
   DangerZoneSection,
   DeviceSessionsSection,
   ThirdPartyLoginSection,
@@ -16,6 +17,10 @@ export default function SettingsPage() {
           Manage your account settings and preferences.
         </p>
       </div>
+
+      <Separator />
+
+      <CurrencySection />
 
       <Separator />
 

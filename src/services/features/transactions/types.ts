@@ -1,8 +1,14 @@
 import type { PaymentMethod, Transaction } from "@/lib/db/schemas";
 
 export type TransactionWithPaymentMethod = Transaction & {
-  paymentMethod?: Pick<PaymentMethod, "id" | "name" | "type"> | null;
-  toPaymentMethod?: Pick<PaymentMethod, "id" | "name" | "type"> | null;
+  paymentMethod?: Pick<
+    PaymentMethod,
+    "id" | "name" | "type" | "currency"
+  > | null;
+  toPaymentMethod?: Pick<
+    PaymentMethod,
+    "id" | "name" | "type" | "currency"
+  > | null;
 };
 
 export interface GetTransactionsFilter {
