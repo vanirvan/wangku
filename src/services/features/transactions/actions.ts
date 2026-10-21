@@ -494,6 +494,110 @@ export async function deleteTransaction(
   return { success: true };
 }
 
+export interface CategoryBreakdownItem {
+  category: string;
+  total: number;
+  count: number;
+  percentage: number;
+}
+
+export interface DailyCashFlowItem {
+  date: string;
+  income: number;
+  expense: number;
+}
+
+export async function getDailyCashFlow(filter?: {
+  startDate?: Date | string;
+  endDate?: Date | string;
+}): Promise<{ data: DailyCashFlowItem[] }> {
+  const user = await getSessionUser();
+  if (!user) return { data: [] };
+
+  const baseConditions = [eq(transactions.userId, user.id)];
+
+  if (filter?.startDate) {
+    const start = new Date(filter.startDate);
+    start.setHours(0, 0, 0, 0);
+    baseConditions.push(gte(transactions.date, start));
+  }
+  if (filter?.endDate) {
+    const end = new Date(filter.endDate);
+    end.setHours(23, 59, 59, 999);
+    baseConditions.push(lte(transactions.date, end));
+  }
+
+  const rows = await db
+    .select({
+      day: sql<string>`to_char(${transactions.date}, 'YYYY-MM-DD')`,
+      income: sql<string>`coalesce(sum(case when ${transactions.type} = 'income' then ${transactions.amount} else 0 end), 0)`,
+      expense: sql<string>`coalesce(sum(case when ${transactions.type} = 'expense' then ${transactions.amount} else 0 end), 0)`,
+    })
+    .from(transactions)
+    .where(and(...baseConditions))
+    .groupBy(sql`to_char(${transactions.date}, 'YYYY-MM-DD')`)
+    .orderBy(sql`to_char(${transactions.date}, 'YYYY-MM-DD')`);
+
+  const data: DailyCashFlowItem[] = rows.map((r) => ({
+    date: r.day,
+    income: Number(r.income) || 0,
+    expense: Number(r.expense) || 0,
+  }));
+
+  return { data };
+}
+
+export async function getCategoryBreakdown(filter?: {
+  startDate?: Date | string;
+  endDate?: Date | string;
+  type?: "expense" | "income";
+}): Promise<{ data: CategoryBreakdownItem[]; total: number }> {
+  const user = await getSessionUser();
+  if (!user) return { data: [], total: 0 };
+
+  const targetType = filter?.type ?? "expense";
+  const baseConditions = [
+    eq(transactions.userId, user.id),
+    eq(transactions.type, targetType),
+  ];
+
+  if (filter?.startDate) {
+    const start = new Date(filter.startDate);
+    start.setHours(0, 0, 0, 0);
+    baseConditions.push(gte(transactions.date, start));
+  }
+  if (filter?.endDate) {
+    const end = new Date(filter.endDate);
+    end.setHours(23, 59, 59, 999);
+    baseConditions.push(lte(transactions.date, end));
+  }
+
+  const rows = await db
+    .select({
+      category: transactions.category,
+      total: sql<string>`coalesce(sum(${transactions.amount}), 0)`,
+      count: sql<number>`count(${transactions.id})`,
+    })
+    .from(transactions)
+    .where(and(...baseConditions))
+    .groupBy(transactions.category)
+    .orderBy(desc(sql`sum(${transactions.amount})`));
+
+  const total = rows.reduce((sum, r) => sum + (Number(r.total) || 0), 0);
+
+  const data: CategoryBreakdownItem[] = rows.map((r) => {
+    const itemTotal = Number(r.total) || 0;
+    return {
+      category: r.category || "Uncategorized",
+      total: itemTotal,
+      count: Number(r.count) || 0,
+      percentage: total > 0 ? Math.round((itemTotal / total) * 100) : 0,
+    };
+  });
+
+  return { data, total };
+}
+
 export async function getTransactionSummary(filter?: {
   startDate?: Date | string;
   endDate?: Date | string;

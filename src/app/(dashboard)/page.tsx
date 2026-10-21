@@ -6,6 +6,8 @@ import { DashboardView } from "@/components/features/dashboard/dashboard-view";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getPaymentMethods } from "@/services/features/payments";
 import {
+  getCategoryBreakdown,
+  getDailyCashFlow,
   getTransactionSummary,
   getTransactions,
 } from "@/services/features/transactions";
@@ -38,11 +40,14 @@ async function DashboardData() {
   const start = startOfMonth(now);
   const end = endOfMonth(now);
 
-  const [walletsRes, txRes, summaryRes] = await Promise.all([
-    getPaymentMethods(),
-    getTransactions({ limit: 5 }),
-    getTransactionSummary({ startDate: start, endDate: end }),
-  ]);
+  const [walletsRes, txRes, summaryRes, categoryRes, dailyRes] =
+    await Promise.all([
+      getPaymentMethods(),
+      getTransactions({ limit: 5 }),
+      getTransactionSummary({ startDate: start, endDate: end }),
+      getCategoryBreakdown({ startDate: start, endDate: end }),
+      getDailyCashFlow({ startDate: start, endDate: end }),
+    ]);
 
   const wallets = walletsRes.data ?? [];
   const recentTransactions = txRes.data ?? [];
@@ -51,12 +56,16 @@ async function DashboardData() {
     totalExpense: 0,
     netBalance: 0,
   };
+  const categoryBreakdown = categoryRes.data ?? [];
+  const dailyCashFlow = dailyRes.data ?? [];
 
   return (
     <DashboardView
       wallets={wallets}
       recentTransactions={recentTransactions}
       summary={summary}
+      initialCategoryBreakdown={categoryBreakdown}
+      initialDailyCashFlow={dailyCashFlow}
       initialDateFrom={start}
       initialDateTo={end}
     />
