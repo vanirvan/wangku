@@ -1,15 +1,15 @@
 import type { ReactNode } from "react";
 
-import { AppSidebar } from "@/components/app-sidebar";
 import { ChatProvider } from "@/components/features/chat";
 import { CurrencyProvider } from "@/components/providers/currency-provider";
-import { ThemeToggler } from "@/components/theme-toggler";
+import { AppSidebar } from "@/components/standalone/app-sidebar";
+import { ThemeToggler } from "@/components/standalone/theme-toggler";
+import { UserNav } from "@/components/standalone/user-nav";
 import {
   SidebarInset,
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
-import { UserNav } from "@/components/user-nav";
 import { getExchangeRates } from "@/lib/exchange-rates";
 import { getUserSettings } from "@/services/features/settings";
 

@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { ThemeToggler } from "@/components/theme-toggler";
+import { ThemeToggler } from "@/components/standalone/theme-toggler";
 import { buttonVariants } from "@/components/ui/button";
 
 export function AuthHeader() {

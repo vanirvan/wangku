@@ -22,7 +22,7 @@ import {
   ComboboxItem,
   ComboboxList,
 } from "@/components/ui/combobox";
-import { CurrencyInput } from "@/components/ui/currency-input";
+import { CurrencyInput } from "@/components/shared/currency-input";
 import {
   Dialog,
   DialogClose,
