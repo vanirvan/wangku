@@ -771,9 +771,10 @@ export function DashboardView({
                 return (
                   <div
                     key={tx.id}
-                    className="flex items-center justify-between p-3 transition-colors hover:bg-muted/20"
+                    className="flex items-center justify-between gap-3 p-3 transition-colors hover:bg-muted/20"
                   >
-                    <div className="flex items-center gap-3">
+                    {/* Left: Icon + Text information */}
+                    <div className="flex min-w-0 flex-1 items-center gap-2.5 sm:gap-3">
                       <div
                         className={cn(
                           "flex size-8 shrink-0 items-center justify-center rounded-lg border",
@@ -789,52 +790,68 @@ export function DashboardView({
                         {isIncome && <ArrowUpRight className="size-3.5" />}
                         {isTransfer && <ArrowLeftRight className="size-3.5" />}
                       </div>
-                      <div className="space-y-0.5">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-xs font-medium text-foreground">
-                            {tx.title ||
-                              (isTransfer ? "Wallet Transfer" : tx.category)}
-                          </span>
+
+                      <div className="min-w-0 flex-1 space-y-0.5">
+                        <p className="truncate text-xs font-medium text-foreground">
+                          {tx.title ||
+                            (isTransfer ? "Wallet Transfer" : tx.category)}
+                        </p>
+
+                        {/* Subtext: Date & badges that wrap cleanly without colliding */}
+                        <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+                          <span>{dateStr}</span>
                           {tx.title && (
-                            <span className="rounded bg-muted/60 px-1 py-0.5 text-[9px] text-muted-foreground">
-                              {tx.category}
-                            </span>
+                            <>
+                              <span>•</span>
+                              <span className="truncate max-w-[100px] rounded bg-muted/60 px-1 py-0.5 text-[9px] text-muted-foreground">
+                                {tx.category}
+                              </span>
+                            </>
                           )}
                           {isTransfer ? (
-                            <div className="flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground font-medium">
-                              <span>{tx.paymentMethod?.name ?? "Wallet"}</span>
-                              <span className="text-primary font-bold">→</span>
-                              <span>
-                                {tx.toPaymentMethod?.name ?? "Wallet"}
+                            <>
+                              <span>•</span>
+                              <span className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">
+                                <span>
+                                  {tx.paymentMethod?.name ?? "Wallet"}
+                                </span>
+                                <span className="text-primary font-bold">
+                                  →
+                                </span>
+                                <span>
+                                  {tx.toPaymentMethod?.name ?? "Wallet"}
+                                </span>
                               </span>
-                            </div>
+                            </>
                           ) : (
                             tx.paymentMethod && (
-                              <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">
-                                {tx.paymentMethod.name}
-                              </span>
+                              <>
+                                <span>•</span>
+                                <span className="truncate max-w-[90px] rounded bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">
+                                  {tx.paymentMethod.name}
+                                </span>
+                              </>
                             )
                           )}
                         </div>
-                        <p className="text-[10px] text-muted-foreground">
-                          {dateStr}
-                          {tx.description ? ` • ${tx.description}` : ""}
-                        </p>
                       </div>
                     </div>
 
-                    <span
-                      className={cn(
-                        "text-xs font-semibold tabular-nums",
-                        isExpense && "text-destructive",
-                        isIncome && "text-emerald-600 dark:text-emerald-400",
-                        isTransfer && "text-foreground font-medium",
-                      )}
-                    >
-                      {isExpense && "- "}
-                      {isIncome && "+ "}
-                      {formatRupiah(tx.amount)}
-                    </span>
+                    {/* Right: Amount - nowrap and strictly aligned */}
+                    <div className="shrink-0 text-right">
+                      <span
+                        className={cn(
+                          "whitespace-nowrap text-xs font-semibold tabular-nums sm:text-sm",
+                          isExpense && "text-destructive",
+                          isIncome && "text-emerald-600 dark:text-emerald-400",
+                          isTransfer && "text-foreground font-medium",
+                        )}
+                      >
+                        {isExpense && "- "}
+                        {isIncome && "+ "}
+                        {formatRupiah(tx.amount)}
+                      </span>
+                    </div>
                   </div>
                 );
               })}
