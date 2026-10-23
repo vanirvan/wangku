@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { connection } from "next/server";
 
 import { ChatProvider } from "@/components/features/chat";
 import { CurrencyProvider } from "@/components/providers/currency-provider";
@@ -20,6 +21,7 @@ export default async function DashboardLayout({
 }: {
   children: ReactNode;
 }) {
+  await connection();
   const [{ data: settings }, rates] = await Promise.all([
     getUserSettings(),
     getExchangeRates(),
