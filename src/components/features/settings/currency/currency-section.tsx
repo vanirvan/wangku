@@ -36,7 +36,7 @@ export function CurrencySection() {
     SUPPORTED_CURRENCIES[0];
 
   return (
-    <section className="space-y-4">
+    <section id="currency" className="scroll-mt-8 space-y-4">
       <div className="space-y-1">
         <h2 className="font-semibold text-lg">Currency & Region</h2>
         <p className="text-muted-foreground text-sm">

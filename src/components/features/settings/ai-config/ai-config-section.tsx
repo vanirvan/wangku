@@ -214,7 +214,7 @@ export function AiConfigSection() {
   };
 
   return (
-    <section className="space-y-4">
+    <section id="ai-assistant" className="scroll-mt-8 space-y-4">
       <div className="space-y-1">
         <h2 className="font-semibold text-lg">AI Assistant</h2>
         <p className="text-muted-foreground text-sm">

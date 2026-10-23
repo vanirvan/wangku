@@ -111,7 +111,12 @@ export function ChatView({ isConfigured }: ChatViewProps) {
           Please configure your AI provider and API key in Settings to start
           chatting with your financial assistant.
         </p>
-        <Button render={<Link href="/settings" />} size="sm" className="mt-5">
+        <Button
+          render={<Link href="/settings#ai-assistant" />}
+          nativeButton={false}
+          size="sm"
+          className="mt-5"
+        >
           <Settings className="size-4" />
           <span>Go to Settings</span>
         </Button>

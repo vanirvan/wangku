@@ -3,7 +3,10 @@ import { ResetTransactionsAction } from "./reset-transactions-action";
 
 export function DangerZoneSection() {
   return (
-    <section className="rounded-xl border border-destructive/30 bg-destructive/5 p-6">
+    <section
+      id="danger-zone"
+      className="scroll-mt-8 rounded-xl border border-destructive/30 bg-destructive/5 p-6"
+    >
       <div className="space-y-1">
         <h2 className="font-semibold text-destructive text-lg">Danger Zone</h2>
         <p className="text-muted-foreground text-sm">

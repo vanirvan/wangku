@@ -8,9 +8,12 @@ import {
 } from "@/components/features/settings";
 import { Separator } from "@/components/ui/separator";
 
+import { HashScroller } from "./hash-scroller";
+
 export default function SettingsPage() {
   return (
     <div className="mx-auto w-full max-w-3xl space-y-8 pb-10">
+      <HashScroller />
       <div>
         <h1 className="font-semibold text-2xl tracking-tight">Settings</h1>
         <p className="text-muted-foreground text-sm">

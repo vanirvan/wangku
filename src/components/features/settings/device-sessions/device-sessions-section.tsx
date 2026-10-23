@@ -127,7 +127,7 @@ export function DeviceSessionsSection() {
   ).length;
 
   return (
-    <section className="space-y-4">
+    <section id="device-sessions" className="scroll-mt-8 space-y-4">
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div className="space-y-1">
           <h2 className="font-semibold text-lg">Active Sessions</h2>

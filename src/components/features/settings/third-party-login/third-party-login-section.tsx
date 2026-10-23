@@ -76,7 +76,7 @@ export function ThirdPartyLoginSection() {
   };
 
   return (
-    <section className="space-y-4">
+    <section id="third-party-login" className="scroll-mt-8 space-y-4">
       <div className="space-y-1">
         <h2 className="font-semibold text-lg">Third-party Logins</h2>
         <p className="text-muted-foreground text-sm">

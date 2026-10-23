@@ -203,7 +203,7 @@
   }
 
   html {
-    @apply font-sans;
+    @apply font-sans scroll-smooth;
   }
 }
 ::view-transition-old(root),

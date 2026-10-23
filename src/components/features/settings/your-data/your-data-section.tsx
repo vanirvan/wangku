@@ -15,7 +15,7 @@ export function YourDataSection() {
   };
 
   return (
-    <section className="space-y-4">
+    <section id="your-data" className="scroll-mt-8 space-y-4">
       <div className="space-y-1">
         <h2 className="font-semibold text-lg">Your Data</h2>
         <p className="text-muted-foreground text-sm">
