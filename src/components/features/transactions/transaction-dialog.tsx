@@ -404,7 +404,9 @@ export function TransactionDialog({
   );
 
   const handleEditCategory = (cat: string) => {
-    setEditingCategory(cat);
+    setTimeout(() => {
+      setEditingCategory(cat);
+    }, 50);
   };
 
   const handleSaveEditedCategory = async (newName: string) => {
@@ -445,8 +447,7 @@ export function TransactionDialog({
   };
 
   return (
-    <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>
@@ -869,7 +870,7 @@ export function TransactionDialog({
                         </ContextMenuTrigger>
                         <ContextMenuContent>
                           <ContextMenuItem
-                            onSelect={() => handleEditCategory(cat)}
+                            onClick={() => handleEditCategory(cat)}
                           >
                             <Pencil className="size-3.5" />
                             Edit
@@ -899,7 +900,7 @@ export function TransactionDialog({
                           ) : (
                             <ContextMenuItem
                               variant="destructive"
-                              onSelect={() => handleDeleteCategory(cat)}
+                              onClick={() => handleDeleteCategory(cat)}
                             >
                               <Trash2 className="size-3.5" />
                               Delete
@@ -998,17 +999,16 @@ export function TransactionDialog({
             </div>
           </DialogFooter>
         </form>
+
+        <EditCategoryDialog
+          open={Boolean(editingCategory)}
+          onOpenChange={(open) => {
+            if (!open) setEditingCategory(null);
+          }}
+          category={editingCategory}
+          onSave={handleSaveEditedCategory}
+        />
       </DialogContent>
     </Dialog>
-
-    <EditCategoryDialog
-      open={Boolean(editingCategory)}
-      onOpenChange={(open) => {
-        if (!open) setEditingCategory(null);
-      }}
-      category={editingCategory}
-      onSave={handleSaveEditedCategory}
-    />
-  </>
   );
 }

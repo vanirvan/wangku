@@ -70,7 +70,7 @@ export function EditCategoryDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xs sm:max-w-sm">
+      <DialogContent className="z-[60] max-w-xs sm:max-w-sm">
         <DialogHeader>
           <DialogTitle className="text-sm font-semibold">
             Edit Category
