@@ -6,10 +6,13 @@ import {
   ArrowDownLeft,
   ArrowLeftRight,
   ArrowUpRight,
+  CircleHelp,
   Loader2,
+  Pencil,
   Plus,
+  Trash2,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 
 import { useCurrency } from "@/components/providers/currency-provider";
@@ -22,6 +25,12 @@ import {
   ComboboxItem,
   ComboboxList,
 } from "@/components/ui/combobox";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { CurrencyInput } from "@/components/shared/currency-input";
 import {
   Dialog,
@@ -34,13 +43,21 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { PaymentMethod } from "@/lib/db/schemas";
 import {
   DEFAULT_EXPENSE_CATEGORIES,
   DEFAULT_INCOME_CATEGORIES,
+  deleteCategory,
   fetchCategoriesWithCache,
   getCachedCategoriesSync,
+  getTransactionCountByCategory,
   invalidateCategoriesCache,
+  renameCategory,
 } from "@/services/features/categories";
 import {
   fetchPaymentMethodsWithCache,
@@ -94,6 +111,11 @@ export function TransactionDialog({
   );
   const [isCustomCategory, setIsCustomCategory] = useState(false);
   const [customCategoryInput, setCustomCategoryInput] = useState("");
+  const [editingCategory, setEditingCategory] = useState<string | null>(null);
+  const [editCategoryInput, setEditCategoryInput] = useState("");
+  const [categoryTxCounts, setCategoryTxCounts] = useState<
+    Record<string, number>
+  >({});
   const [dateTimeInput, setDateTimeInput] = useState(() =>
     toLocalDatetimeString(),
   );
@@ -186,6 +208,9 @@ export function TransactionDialog({
 
       setIsCustomCategory(false);
       setCustomCategoryInput("");
+      setEditingCategory(null);
+      setEditCategoryInput("");
+      setCategoryTxCounts({});
 
       fetchPaymentMethodsWithCache().then((cachedWallets) => {
         setWallets(cachedWallets);
@@ -294,6 +319,8 @@ export function TransactionDialog({
     setValue("type", newType, { shouldValidate: true, shouldDirty: true });
     setIsCustomCategory(false);
     setCustomCategoryInput("");
+    setEditingCategory(null);
+    setCategoryTxCounts({});
 
     if (newType === "transfer") {
       setValue("category", "Transfer", { shouldValidate: true });
@@ -346,6 +373,81 @@ export function TransactionDialog({
       shouldValidate: true,
       shouldDirty: true,
     });
+  };
+
+  const defaultCategoriesSet = new Set<string>(
+    currentType === "expense"
+      ? DEFAULT_EXPENSE_CATEGORIES
+      : DEFAULT_INCOME_CATEGORIES,
+  );
+
+  const isCustomCat = useCallback(
+    (cat: string) => !defaultCategoriesSet.has(cat),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [currentType],
+  );
+
+  const fetchTxCount = useCallback(
+    async (cat: string) => {
+      if (
+        currentType === "transfer" ||
+        categoryTxCounts[cat] !== undefined
+      )
+        return;
+      const count = await getTransactionCountByCategory(
+        cat,
+        currentType as "income" | "expense",
+      );
+      setCategoryTxCounts((prev) => ({ ...prev, [cat]: count }));
+    },
+    [currentType, categoryTxCounts],
+  );
+
+  const handleEditCategory = (cat: string) => {
+    setEditingCategory(cat);
+    setEditCategoryInput(cat);
+  };
+
+  const handleEditCategoryConfirm = async () => {
+    if (!editingCategory || !editCategoryInput.trim()) return;
+    const trimmed = editCategoryInput.trim();
+    if (trimmed === editingCategory) {
+      setEditingCategory(null);
+      return;
+    }
+
+    const type = currentType as "income" | "expense";
+    const result = await renameCategory(editingCategory, trimmed, type);
+    if (result.success) {
+      invalidateCategoriesCache(type);
+      const refreshed = await fetchCategoriesWithCache(type, true);
+      setCategories(refreshed);
+      if (currentCategory === editingCategory) {
+        setValue("category", trimmed, { shouldValidate: true });
+      }
+      setCategoryTxCounts({});
+    }
+    setEditingCategory(null);
+  };
+
+  const handleDeleteCategory = async (cat: string) => {
+    const type = currentType as "income" | "expense";
+    const result = await deleteCategory(cat, type);
+    if (result.success) {
+      invalidateCategoriesCache(type);
+      const refreshed = await fetchCategoriesWithCache(type, true);
+      setCategories(refreshed);
+      if (currentCategory === cat) {
+        setValue("category", refreshed[0] ?? "Other", {
+          shouldValidate: true,
+        });
+      }
+      setCategoryTxCounts((prev) => {
+        const next = { ...prev };
+        delete next[cat];
+        return next;
+      });
+    }
   };
 
   return (
@@ -733,9 +835,36 @@ export function TransactionDialog({
                 <div className="flex flex-wrap items-center gap-1.5 max-h-32 overflow-y-auto pr-1">
                   {categories.map((cat) => {
                     const isSelected = currentCategory === cat;
-                    return (
+                    const isCustom = isCustomCat(cat);
+
+                    if (editingCategory === cat) {
+                      return (
+                        <form
+                          key={cat}
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            handleEditCategoryConfirm();
+                          }}
+                          className="flex items-center gap-1"
+                        >
+                          <Input
+                            value={editCategoryInput}
+                            onChange={(e) =>
+                              setEditCategoryInput(e.target.value)
+                            }
+                            className="h-7 w-28 text-xs"
+                            autoFocus
+                            onBlur={handleEditCategoryConfirm}
+                            onKeyDown={(e) => {
+                              if (e.key === "Escape") setEditingCategory(null);
+                            }}
+                          />
+                        </form>
+                      );
+                    }
+
+                    const categoryButton = (
                       <button
-                        key={cat}
                         type="button"
                         onClick={() => handleCategorySelect(cat)}
                         disabled={isSubmitting}
@@ -748,6 +877,67 @@ export function TransactionDialog({
                       >
                         {cat}
                       </button>
+                    );
+
+                    if (!isCustom) {
+                      return (
+                        <span key={cat}>
+                          {categoryButton}
+                        </span>
+                      );
+                    }
+
+                    const txCount = categoryTxCounts[cat];
+                    const hasTransactions =
+                      txCount === undefined || txCount > 0;
+
+                    return (
+                      <ContextMenu key={cat} onOpenChange={(open) => {
+                        if (open) fetchTxCount(cat);
+                      }}>
+                        <ContextMenuTrigger className="inline-flex">
+                          {categoryButton}
+                        </ContextMenuTrigger>
+                        <ContextMenuContent>
+                          <ContextMenuItem
+                            onSelect={() => handleEditCategory(cat)}
+                          >
+                            <Pencil className="size-3.5" />
+                            Edit
+                          </ContextMenuItem>
+                          {hasTransactions ? (
+                            <Tooltip>
+                              <TooltipTrigger
+                                render={
+                                  <div className="flex cursor-not-allowed items-center gap-1.5 rounded-md px-1.5 py-1 text-sm text-muted-foreground opacity-50">
+                                    <Trash2 className="size-3.5" />
+                                    Delete
+                                    <CircleHelp className="ml-auto size-3.5" />
+                                  </div>
+                                }
+                              />
+                              <TooltipContent side="bottom">
+                                You have{" "}
+                                {txCount === undefined
+                                  ? "…"
+                                  : txCount}{" "}
+                                transaction
+                                {txCount !== 1 ? "s" : ""} with this
+                                category, change them first before
+                                deleting it
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            <ContextMenuItem
+                              variant="destructive"
+                              onSelect={() => handleDeleteCategory(cat)}
+                            >
+                              <Trash2 className="size-3.5" />
+                              Delete
+                            </ContextMenuItem>
+                          )}
+                        </ContextMenuContent>
+                      </ContextMenu>
                     );
                   })}
 
