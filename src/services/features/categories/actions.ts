@@ -108,6 +108,38 @@ export async function renameCategory(
   const trimmed = newName.trim();
   if (!trimmed) return { error: "Category name cannot be empty" };
 
+  if (categoryName.toLowerCase() === trimmed.toLowerCase()) {
+    return { success: true };
+  }
+
+  const defaults =
+    type === "expense"
+      ? (DEFAULT_EXPENSE_CATEGORIES as readonly string[])
+      : (DEFAULT_INCOME_CATEGORIES as readonly string[]);
+
+  const isDefault = defaults.some(
+    (d) => d.toLowerCase() === trimmed.toLowerCase(),
+  );
+
+  if (isDefault) {
+    return { error: `"${trimmed}" is already a default category` };
+  }
+
+  const [existing] = await db
+    .select()
+    .from(categories)
+    .where(
+      and(
+        eq(categories.userId, user.id),
+        eq(categories.type, type),
+        ilike(categories.name, trimmed),
+      ),
+    );
+
+  if (existing && existing.name.toLowerCase() !== categoryName.toLowerCase()) {
+    return { error: `Category "${trimmed}" already exists` };
+  }
+
   // Update the category record itself
   await db
     .update(categories)

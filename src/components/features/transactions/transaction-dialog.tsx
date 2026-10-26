@@ -73,6 +73,8 @@ import {
   updateTransaction,
 } from "@/services/features/transactions";
 
+import { EditCategoryDialog } from "./edit-category-dialog";
+
 interface TransactionDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -112,7 +114,6 @@ export function TransactionDialog({
   const [isCustomCategory, setIsCustomCategory] = useState(false);
   const [customCategoryInput, setCustomCategoryInput] = useState("");
   const [editingCategory, setEditingCategory] = useState<string | null>(null);
-  const [editCategoryInput, setEditCategoryInput] = useState("");
   const [categoryTxCounts, setCategoryTxCounts] = useState<
     Record<string, number>
   >({});
@@ -209,7 +210,6 @@ export function TransactionDialog({
       setIsCustomCategory(false);
       setCustomCategoryInput("");
       setEditingCategory(null);
-      setEditCategoryInput("");
       setCategoryTxCounts({});
 
       fetchPaymentMethodsWithCache().then((cachedWallets) => {
@@ -405,28 +405,22 @@ export function TransactionDialog({
 
   const handleEditCategory = (cat: string) => {
     setEditingCategory(cat);
-    setEditCategoryInput(cat);
   };
 
-  const handleEditCategoryConfirm = async () => {
-    if (!editingCategory || !editCategoryInput.trim()) return;
-    const trimmed = editCategoryInput.trim();
-    if (trimmed === editingCategory) {
-      setEditingCategory(null);
-      return;
-    }
-
+  const handleSaveEditedCategory = async (newName: string) => {
+    if (!editingCategory) return;
     const type = currentType as "income" | "expense";
-    const result = await renameCategory(editingCategory, trimmed, type);
-    if (result.success) {
-      invalidateCategoriesCache(type);
-      const refreshed = await fetchCategoriesWithCache(type, true);
-      setCategories(refreshed);
-      if (currentCategory === editingCategory) {
-        setValue("category", trimmed, { shouldValidate: true });
-      }
-      setCategoryTxCounts({});
+    const result = await renameCategory(editingCategory, newName, type);
+    if (result.error) {
+      return { error: result.error };
     }
+    invalidateCategoriesCache(type);
+    const refreshed = await fetchCategoriesWithCache(type, true);
+    setCategories(refreshed);
+    if (currentCategory === editingCategory) {
+      setValue("category", newName, { shouldValidate: true });
+    }
+    setCategoryTxCounts({});
     setEditingCategory(null);
   };
 
@@ -451,7 +445,8 @@ export function TransactionDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>
@@ -837,32 +832,6 @@ export function TransactionDialog({
                     const isSelected = currentCategory === cat;
                     const isCustom = isCustomCat(cat);
 
-                    if (editingCategory === cat) {
-                      return (
-                        <form
-                          key={cat}
-                          onSubmit={(e) => {
-                            e.preventDefault();
-                            handleEditCategoryConfirm();
-                          }}
-                          className="flex items-center gap-1"
-                        >
-                          <Input
-                            value={editCategoryInput}
-                            onChange={(e) =>
-                              setEditCategoryInput(e.target.value)
-                            }
-                            className="h-7 w-28 text-xs"
-                            autoFocus
-                            onBlur={handleEditCategoryConfirm}
-                            onKeyDown={(e) => {
-                              if (e.key === "Escape") setEditingCategory(null);
-                            }}
-                          />
-                        </form>
-                      );
-                    }
-
                     const categoryButton = (
                       <button
                         type="button"
@@ -1031,5 +1000,15 @@ export function TransactionDialog({
         </form>
       </DialogContent>
     </Dialog>
+
+    <EditCategoryDialog
+      open={Boolean(editingCategory)}
+      onOpenChange={(open) => {
+        if (!open) setEditingCategory(null);
+      }}
+      category={editingCategory}
+      onSave={handleSaveEditedCategory}
+    />
+  </>
   );
 }
