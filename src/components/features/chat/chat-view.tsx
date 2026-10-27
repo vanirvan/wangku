@@ -1,16 +1,7 @@
 "use client";
 
 import type { UIMessage } from "@tanstack/ai-react";
-import {
-  ArrowUp,
-  Check,
-  Loader2,
-  Settings,
-  Sparkles,
-  Square,
-  Trash2,
-  XCircle,
-} from "lucide-react";
+import { ArrowUp, Settings, Sparkles, Square, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -33,6 +24,14 @@ import {
 } from "@/components/ui/input-group";
 
 import { useChatContext } from "./chat-context";
+import {
+  ChatThinkingIndicator,
+  ChatThinkingTrace,
+  ChatToolTrace,
+  type ToolCallPartData,
+  type ToolResultPartData,
+  Trace,
+} from "./chat-trace";
 import { MarkdownContent } from "./markdown-content";
 
 interface ChatViewProps {
@@ -74,15 +73,15 @@ export function ChatView({ isConfigured }: ChatViewProps) {
   };
 
   const toolResultsByCallId = useMemo(() => {
-    const ids = new Set<string>();
+    const map = new Map<string, ToolResultPartData>();
     for (const msg of messages) {
       for (const part of msg.parts) {
         if (part.type === "tool-result" && part.toolCallId) {
-          ids.add(part.toolCallId);
+          map.set(part.toolCallId, part);
         }
       }
     }
-    return ids;
+    return map;
   }, [messages]);
 
   const isCurrentlyExecutingTool = useMemo(() => {
@@ -220,6 +219,107 @@ export function ChatView({ isConfigured }: ChatViewProps) {
               const isPrevSameRole =
                 msgIdx > 0 && messages[msgIdx - 1]?.role === message.role;
 
+              // Group consecutive non-text trace items (tool calls, thinking) into a Trace container
+              type TraceItem =
+                | {
+                    type: "tool-call";
+                    key: string;
+                    part: ToolCallPartData;
+                    result?: ToolResultPartData;
+                    isRunning: boolean;
+                    isError: boolean;
+                  }
+                | {
+                    type: "thinking";
+                    key: string;
+                    content: string;
+                    isRunning: boolean;
+                  };
+
+              type Segment =
+                | { type: "text"; key: string; content: string }
+                | { type: "trace"; key: string; items: TraceItem[] };
+
+              const segments: Segment[] = [];
+              let currentTraceGroup: TraceItem[] = [];
+
+              const flushTraceGroup = () => {
+                if (currentTraceGroup.length > 0) {
+                  segments.push({
+                    type: "trace",
+                    key: `${message.id}-trace-group-${segments.length}`,
+                    items: currentTraceGroup,
+                  });
+                  currentTraceGroup = [];
+                }
+              };
+
+              message.parts.forEach((part, partIdx) => {
+                const partKey = `${message.id}-part-${partIdx}`;
+
+                if (part.type === "text") {
+                  flushTraceGroup();
+                  segments.push({
+                    type: "text",
+                    key: partKey,
+                    content: part.content,
+                  });
+                  return;
+                }
+
+                if (part.type === "tool-call") {
+                  const hasSubsequentText = message.parts
+                    .slice(partIdx + 1)
+                    .some(
+                      (p) => p.type === "text" && p.content.trim().length > 0,
+                    );
+
+                  const result = part.id
+                    ? toolResultsByCallId.get(part.id)
+                    : undefined;
+                  const hasResult =
+                    Boolean(result) ||
+                    part.state === "complete" ||
+                    part.output !== undefined;
+
+                  const isDone =
+                    hasResult ||
+                    hasSubsequentText ||
+                    !isLastMessage ||
+                    !isLoading;
+
+                  const isError =
+                    part.state === "error" || result?.state === "error";
+
+                  currentTraceGroup.push({
+                    type: "tool-call",
+                    key: part.id || partKey,
+                    part,
+                    result,
+                    isRunning: !isDone && !isError,
+                    isError,
+                  });
+                  return;
+                }
+
+                if (part.type === "thinking") {
+                  const isStreaming =
+                    isLastMessage &&
+                    isLoading &&
+                    partIdx === message.parts.length - 1;
+
+                  currentTraceGroup.push({
+                    type: "thinking",
+                    key: partKey,
+                    content: part.content,
+                    isRunning: isStreaming,
+                  });
+                  return;
+                }
+              });
+
+              flushTraceGroup();
+
               return (
                 <div key={message.id} className="flex flex-col gap-2">
                   {!isPrevSameRole && (
@@ -232,73 +332,41 @@ export function ChatView({ isConfigured }: ChatViewProps) {
                   )}
 
                   <div className="space-y-2 pl-5">
-                    {message.parts.map((part, partIdx) => {
-                      const partKey = `${message.id}-part-${partIdx}`;
-
-                      if (part.type === "text") {
+                    {segments.map((segment) => {
+                      if (segment.type === "text") {
                         return (
                           <MarkdownContent
-                            key={partKey}
-                            content={part.content}
+                            key={segment.key}
+                            content={segment.content}
                           />
                         );
                       }
 
-                      if (part.type === "tool-call") {
-                        const hasSubsequentText = message.parts
-                          .slice(partIdx + 1)
-                          .some(
-                            (p) =>
-                              p.type === "text" && p.content.trim().length > 0,
-                          );
+                      return (
+                        <Trace key={segment.key} className="my-1">
+                          {segment.items.map((item) => {
+                            if (item.type === "thinking") {
+                              return (
+                                <ChatThinkingTrace
+                                  key={item.key}
+                                  content={item.content}
+                                  isRunning={item.isRunning}
+                                />
+                              );
+                            }
 
-                        const hasResult =
-                          Boolean(
-                            part.id && toolResultsByCallId.has(part.id),
-                          ) ||
-                          part.state === "complete" ||
-                          part.output !== undefined;
-
-                        const isDone =
-                          hasResult ||
-                          hasSubsequentText ||
-                          !isLastMessage ||
-                          !isLoading;
-
-                        const isError = part.state === "error";
-
-                        return (
-                          <div
-                            key={part.id || partKey}
-                            className="flex w-fit items-center gap-2 rounded-md bg-muted/40 px-2.5 py-1.5 text-muted-foreground text-xs"
-                          >
-                            {isError ? (
-                              <>
-                                <XCircle className="size-3 text-destructive" />
-                                <span>
-                                  Failed <strong>{part.name}</strong>
-                                </span>
-                              </>
-                            ) : isDone ? (
-                              <>
-                                <Check className="size-3 text-emerald-500" />
-                                <span>
-                                  Used <strong>{part.name}</strong>
-                                </span>
-                              </>
-                            ) : (
-                              <>
-                                <Loader2 className="size-3 animate-spin text-primary" />
-                                <span>
-                                  Executing <strong>{part.name}</strong>...
-                                </span>
-                              </>
-                            )}
-                          </div>
-                        );
-                      }
-
-                      return null;
+                            return (
+                              <ChatToolTrace
+                                key={item.key}
+                                part={item.part}
+                                result={item.result}
+                                isRunning={item.isRunning}
+                                isError={item.isError}
+                              />
+                            );
+                          })}
+                        </Trace>
+                      );
                     })}
                   </div>
                 </div>
@@ -307,9 +375,8 @@ export function ChatView({ isConfigured }: ChatViewProps) {
           )}
 
           {isLoading && !isCurrentlyExecutingTool && (
-            <div className="flex items-center gap-2 pl-5 text-muted-foreground text-xs">
-              <Loader2 className="size-3.5 animate-spin text-primary" />
-              <span>Thinking...</span>
+            <div className="pl-5">
+              <ChatThinkingIndicator />
             </div>
           )}
 
