@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
 import { connection } from "next/server";
+import type { ReactNode } from "react";
 
 import { ChatProvider } from "@/components/features/chat";
 import { CurrencyProvider } from "@/components/providers/currency-provider";

@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { SignUpForm } from "@/components/features/auth/sign-up-form";
 
 export const metadata: Metadata = {
-  title: "Sign Up - Wangku",
+  title: "Sign Up",
   description: "Create your Wangku account",
 };
 

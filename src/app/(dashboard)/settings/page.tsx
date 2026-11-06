@@ -1,3 +1,5 @@
+import type { Metadata } from "next";
+
 import {
   AiConfigSection,
   CurrencySection,
@@ -9,6 +11,12 @@ import {
 import { Separator } from "@/components/ui/separator";
 
 import { HashScroller } from "./hash-scroller";
+
+export const metadata: Metadata = {
+  title: "Settings",
+  description:
+    "Manage your account settings, currency preferences, and AI configuration.",
+};
 
 export default function SettingsPage() {
   return (

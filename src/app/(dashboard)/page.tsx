@@ -1,4 +1,5 @@
 import { endOfMonth, startOfMonth } from "date-fns";
+import type { Metadata } from "next";
 import { connection } from "next/server";
 import { Suspense } from "react";
 
@@ -11,6 +12,12 @@ import {
   getTransactionSummary,
   getTransactions,
 } from "@/services/features/transactions";
+
+export const metadata: Metadata = {
+  title: "Dashboard",
+  description:
+    "Overview of your personal finances, cash flow, and recent transactions.",
+};
 
 function DashboardSkeleton() {
   return (

@@ -1,4 +1,5 @@
 import { endOfMonth, startOfMonth } from "date-fns";
+import type { Metadata } from "next";
 import { connection } from "next/server";
 import { Suspense } from "react";
 
@@ -11,6 +12,11 @@ import {
   getTransactionSummary,
   getTransactions,
 } from "@/services/features/transactions";
+
+export const metadata: Metadata = {
+  title: "Transactions",
+  description: "Track and manage your expenses and incomes across all wallets.",
+};
 
 function TransactionsSkeleton() {
   return (

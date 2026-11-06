@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { Suspense } from "react";
 
@@ -6,6 +7,12 @@ import { ChatView } from "@/components/features/chat";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { aiSettings } from "@/lib/db/schemas";
+
+export const metadata: Metadata = {
+  title: "AI Assistant",
+  description:
+    "Chat with your AI financial assistant to record transactions, manage wallets, and analyze your finances.",
+};
 
 async function ChatData() {
   const session = await auth.api.getSession({

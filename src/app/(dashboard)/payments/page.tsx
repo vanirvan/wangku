@@ -1,9 +1,16 @@
+import type { Metadata } from "next";
 import { Suspense } from "react";
 
 import { PaymentMethodList } from "@/components/features/payments";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getPaymentMethods } from "@/services/features/payments";
+
+export const metadata: Metadata = {
+  title: "Payment Methods",
+  description:
+    "Manage your physical wallets, bank accounts, cards, and e-wallets.",
+};
 
 function PaymentListSkeleton() {
   return (
