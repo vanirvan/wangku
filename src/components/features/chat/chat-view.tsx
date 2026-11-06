@@ -20,7 +20,7 @@ import {
   InputGroup,
   InputGroupAddon,
   InputGroupButton,
-  InputGroupInput,
+  InputGroupTextarea,
 } from "@/components/ui/input-group";
 
 import { useChatContext } from "./chat-context";
@@ -45,6 +45,7 @@ export function ChatView({ isConfigured }: ChatViewProps) {
   const [input, setInput] = useState("");
   const [showClearDialog, setShowClearDialog] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -56,6 +57,27 @@ export function ChatView({ isConfigured }: ChatViewProps) {
     }
   }, [messages, scrollToBottom]);
 
+  const adjustTextareaHeight = useCallback((value: string) => {
+    if (
+      typeof window !== "undefined" &&
+      typeof CSS !== "undefined" &&
+      CSS.supports?.("field-sizing", "content")
+    ) {
+      return;
+    }
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = "auto";
+      if (value) {
+        textarea.style.height = `${Math.min(textarea.scrollHeight, 192)}px`;
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    adjustTextareaHeight(input);
+  }, [adjustTextareaHeight, input]);
+
   const handleSubmit = (e?: React.FormEvent) => {
     e?.preventDefault();
     const trimmed = input.trim();
@@ -65,8 +87,8 @@ export function ChatView({ isConfigured }: ChatViewProps) {
     setInput("");
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       handleSubmit();
     }
@@ -396,15 +418,17 @@ export function ChatView({ isConfigured }: ChatViewProps) {
         <div className="pointer-events-none absolute inset-x-0 bottom-full h-[100px] bg-linear-to-t from-background to-transparent" />
         <div className="mx-auto w-full max-w-5xl px-4 py-3">
           <form onSubmit={handleSubmit}>
-            <InputGroup className="h-11 rounded-xl bg-background px-1 shadow-2xs">
-              <InputGroupInput
+            <InputGroup className="min-h-11 rounded-xl bg-background px-1 shadow-2xs">
+              <InputGroupTextarea
+                ref={textareaRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Ask Wangku AI or record transactions..."
-                className="h-full px-3 text-sm"
+                rows={1}
+                className="min-h-0 max-h-48 px-3 py-2.5 text-sm"
               />
-              <InputGroupAddon align="inline-end">
+              <InputGroupAddon align="inline-end" className="self-end">
                 {isLoading ? (
                   <InputGroupButton
                     type="button"
